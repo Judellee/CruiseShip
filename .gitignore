@@ -3,6 +3,7 @@ java/bin/
 
 # Database credentials — copy db.properties.example to db.properties and fill in
 java/db.properties
+db.properties
 
 # Build artifacts
 java/manifest.txt
