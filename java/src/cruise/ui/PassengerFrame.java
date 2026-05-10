@@ -32,7 +32,11 @@ public class PassengerFrame extends JFrame {
         tabs.addTab("  Browse Voyages  ", new BrowseVoyagesPanel());
         tabs.addTab("  Our Ships  ",      new BrowseShipsPanel());
         tabs.addTab("  Book a Voyage  ",  new BookingPanel(passengerId));
-        tabs.addTab("  My Reservations  ", new LookupPanel(passengerId));
+        LookupPanel lookupPanel = new LookupPanel(passengerId);
+        tabs.addTab("  My Reservations  ", lookupPanel);
+        tabs.addChangeListener(e -> {
+            if (tabs.getSelectedComponent() == lookupPanel) lookupPanel.refresh();
+        });
 
         add(tabs, BorderLayout.CENTER);
 

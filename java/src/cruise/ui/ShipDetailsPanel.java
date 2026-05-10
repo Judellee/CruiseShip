@@ -14,6 +14,7 @@ public class ShipDetailsPanel extends JPanel {
 
     // Sub-models
     private final DefaultTableModel deckModel   = tableModel("ID", "Deck Number", "Ship");
+    private final DefaultTableModel cabinModel  = tableModel("ID", "Cabin No.", "Type", "Deck", "Ship");
     private final DefaultTableModel diningModel = tableModel("ID", "Venue Name", "Capacity", "Ship");
     private final DefaultTableModel facilModel  = tableModel("ID", "Facility Name", "Ship");
     private final DefaultTableModel eventModel  = tableModel("ID", "Event Name", "Date/Time", "Venue", "Ship");
@@ -40,6 +41,7 @@ public class ShipDetailsPanel extends JPanel {
 
         // Sub-tabs
         innerTabs.addTab("  Decks  ",      buildSubPanel(deckModel,   "deck"));
+        innerTabs.addTab("  Cabins  ",     buildSubPanel(cabinModel,  "cabin"));
         innerTabs.addTab("  Dining  ",     buildSubPanel(diningModel, "dining"));
         innerTabs.addTab("  Facilities  ", buildSubPanel(facilModel,  "facility"));
         innerTabs.addTab("  Events  ",     buildSubPanel(eventModel,  "event"));
@@ -68,7 +70,7 @@ public class ShipDetailsPanel extends JPanel {
     }
 
     private void loadAll() {
-        loadDecks(); loadDining(); loadFacilities(); loadEvents();
+        loadDecks(); loadCabins(); loadDining(); loadFacilities(); loadEvents();
     }
 
     private void loadDecks() {
@@ -78,6 +80,16 @@ public class ShipDetailsPanel extends JPanel {
                      (selectedShipId() > 0 ? "WHERE d.ShipID=" + selectedShipId() + " " : "") +
                      "ORDER BY s.ShipName, d.DeckNumber";
         runQuery(sql, deckModel);
+    }
+
+    private void loadCabins() {
+        cabinModel.setRowCount(0);
+        String sql = "SELECT c.CabinID, c.CabinNumber, c.CabinType, d.DeckNumber, s.ShipName " +
+                     "FROM Cabin c JOIN Ship s ON c.ShipID=s.ShipID " +
+                     "LEFT JOIN Deck d ON c.DeckID=d.DeckID " +
+                     (selectedShipId() > 0 ? "WHERE c.ShipID=" + selectedShipId() + " " : "") +
+                     "ORDER BY s.ShipName, c.CabinNumber";
+        runQuery(sql, cabinModel);
     }
 
     private void loadDining() {
@@ -100,7 +112,7 @@ public class ShipDetailsPanel extends JPanel {
 
     private void loadEvents() {
         eventModel.setRowCount(0);
-        String sql = "SELECT e.EventID, e.EventName, e.EventDateTime, e.Venue, s.ShipName " +
+        String sql = "SELECT e.EventID, e.EventName, DATE_FORMAT(e.EventDateTime, '%Y-%m-%d %H:%i'), e.Venue, s.ShipName " +
                      "FROM EntertainmentEvent e JOIN Ship s ON e.ShipID=s.ShipID " +
                      (selectedShipId() > 0 ? "WHERE e.ShipID=" + selectedShipId() + " " : "") +
                      "ORDER BY e.EventDateTime";
@@ -157,6 +169,7 @@ public class ShipDetailsPanel extends JPanel {
         JDialog dlg;
         switch (type) {
             case "deck":    dlg = new DeckDialog(win, id); break;
+            case "cabin":   dlg = new CabinDialog(win, id); break;
             case "dining":  dlg = new DiningDialog(win, id); break;
             case "facility":dlg = new FacilityDialog(win, id); break;
             default:        dlg = new EventDialog(win, id); break;
@@ -174,6 +187,7 @@ public class ShipDetailsPanel extends JPanel {
         String sql;
         switch (type) {
             case "deck":     sql = "DELETE FROM Deck WHERE DeckID=?"; break;
+            case "cabin":    sql = "DELETE FROM Cabin WHERE CabinID=?"; break;
             case "dining":   sql = "DELETE FROM DiningVenue WHERE DiningVenueID=?"; break;
             case "facility": sql = "DELETE FROM Facility WHERE FacilityID=?"; break;
             default:         sql = "DELETE FROM EntertainmentEvent WHERE EventID=?"; break;
@@ -252,6 +266,117 @@ public class ShipDetailsPanel extends JPanel {
                             "UPDATE Deck SET DeckNumber=?, ShipID=? WHERE DeckID=?")) {
                         ps.setInt(1, Integer.parseInt(num)); ps.setInt(2, shipId); ps.setInt(3, deckId);
                         ps.executeUpdate();
+                    }
+                }
+                dispose();
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(this, e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    // ── Cabin Dialog ──────────────────────────────────────────────────────────
+
+    class CabinDialog extends JDialog {
+        private final JTextField numField  = new JTextField(10);
+        private final JComboBox<String> typeCombo = new JComboBox<>(
+                new String[]{"Interior", "Ocean View", "Balcony", "Suite"});
+        private final JComboBox<String[]> sc = shipCombo();
+        private JComboBox<String[]> dc;
+        private final int cabinId;
+
+        CabinDialog(Window parent, int cabinId) {
+            super(parent, cabinId < 0 ? "Add Cabin" : "Edit Cabin", ModalityType.APPLICATION_MODAL);
+            this.cabinId = cabinId;
+            dc = deckComboForShip(getSelectedShipId(sc));
+            sc.addActionListener(e -> {
+                int idx = sc.getSelectedIndex();
+                String[] sel = idx >= 0 ? (String[]) sc.getItemAt(idx) : null;
+                int sid = sel != null ? Integer.parseInt(sel[0]) : 0;
+                JComboBox<String[]> newDc = deckComboForShip(sid);
+                Container form = dc.getParent();
+                if (form != null) { form.remove(dc); }
+                dc = newDc;
+                if (form != null) {
+                    GridBagConstraints c2 = new GridBagConstraints();
+                    c2.gridx = 1; c2.gridy = 3; c2.anchor = GridBagConstraints.WEST;
+                    c2.insets = new Insets(6, 6, 6, 6);
+                    form.add(dc, c2);
+                    form.revalidate(); form.repaint();
+                }
+            });
+            JPanel form = ShipsPanel.formPanel();
+            ShipsPanel.addRow(form, 0, "Cabin Number:", numField);
+            ShipsPanel.addRow(form, 1, "Cabin Type:",   typeCombo);
+            ShipsPanel.addRow(form, 2, "Ship:",         sc);
+            ShipsPanel.addRow(form, 3, "Deck:",         dc);
+            JButton save = new JButton("Save"), cancel = new JButton("Cancel");
+            ShipsPanel.addButtons(form, 4, save, cancel);
+            if (cabinId > 0) {
+                try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                        "SELECT CabinNumber, CabinType, ShipID, DeckID FROM Cabin WHERE CabinID=?")) {
+                    ps.setInt(1, cabinId); ResultSet rs = ps.executeQuery();
+                    if (rs.next()) {
+                        numField.setText(rs.getString(1));
+                        typeCombo.setSelectedItem(rs.getString(2));
+                        String sid = rs.getString(3), did = rs.getString(4);
+                        for (int i = 0; i < sc.getItemCount(); i++)
+                            if (sc.getItemAt(i)[0].equals(sid)) { sc.setSelectedIndex(i); break; }
+                        dc = deckComboForShip(Integer.parseInt(sid));
+                        if (did != null)
+                            for (int i = 0; i < dc.getItemCount(); i++)
+                                if (dc.getItemAt(i)[0].equals(did)) { dc.setSelectedIndex(i); break; }
+                    }
+                } catch (SQLException ignored) {}
+            }
+            save.addActionListener(e -> save()); cancel.addActionListener(e -> dispose());
+            getRootPane().setDefaultButton(save);
+            add(form); pack(); setResizable(false); setLocationRelativeTo(parent);
+        }
+
+        private int getSelectedShipId(JComboBox<String[]> combo) {
+            String[] sel = (String[]) combo.getSelectedItem();
+            return sel != null ? Integer.parseInt(sel[0]) : 0;
+        }
+
+        private JComboBox<String[]> deckComboForShip(int shipId) {
+            JComboBox<String[]> cb = new JComboBox<>();
+            cb.setRenderer((l, v, i, s, f) -> new JLabel(v != null ? "Deck " + v[1] : ""));
+            cb.addItem(new String[]{"0", "—"});
+            if (shipId > 0) {
+                try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                        "SELECT DeckID, DeckNumber FROM Deck WHERE ShipID=? ORDER BY DeckNumber")) {
+                    ps.setInt(1, shipId);
+                    ResultSet rs = ps.executeQuery();
+                    while (rs.next()) cb.addItem(new String[]{rs.getString(1), rs.getString(2)});
+                } catch (SQLException ignored) {}
+            }
+            return cb;
+        }
+
+        private void save() {
+            String num = numField.getText().trim();
+            if (num.isEmpty() || sc.getSelectedItem() == null) {
+                JOptionPane.showMessageDialog(this, "Cabin number and ship are required."); return;
+            }
+            int shipId = Integer.parseInt(((String[]) sc.getSelectedItem())[0]);
+            String[] dsel = (String[]) dc.getSelectedItem();
+            Integer deckId = (dsel == null || dsel[0].equals("0")) ? null : Integer.parseInt(dsel[0]);
+            String type = (String) typeCombo.getSelectedItem();
+            try {
+                if (cabinId < 0) {
+                    try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                            "INSERT INTO Cabin (CabinNumber, CabinType, ShipID, DeckID) VALUES (?,?,?,?)")) {
+                        ps.setString(1, num); ps.setString(2, type); ps.setInt(3, shipId);
+                        if (deckId == null) ps.setNull(4, Types.INTEGER); else ps.setInt(4, deckId);
+                        ps.executeUpdate();
+                    }
+                } else {
+                    try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                            "UPDATE Cabin SET CabinNumber=?, CabinType=?, ShipID=?, DeckID=? WHERE CabinID=?")) {
+                        ps.setString(1, num); ps.setString(2, type); ps.setInt(3, shipId);
+                        if (deckId == null) ps.setNull(4, Types.INTEGER); else ps.setInt(4, deckId);
+                        ps.setInt(5, cabinId); ps.executeUpdate();
                     }
                 }
                 dispose();

@@ -9,95 +9,174 @@ import java.sql.*;
 
 public class EmployeesPanel extends JPanel {
 
-    private final DefaultTableModel model;
-    private final JTable table;
-
     public EmployeesPanel() {
-        super(new BorderLayout(6, 6));
+        super(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-        String[] cols = {"ID", "First Name", "Last Name", "Title", "Hire Date"};
-        model = new DefaultTableModel(cols, 0) {
-            public boolean isCellEditable(int r, int c) { return false; }
-        };
-        table = new JTable(model);
-        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        table.setAutoCreateRowSorter(true);
-        table.getTableHeader().setReorderingAllowed(false);
-        table.setRowHeight(22);
 
         JLabel heading = new JLabel("Employees");
         heading.setFont(new Font("SansSerif", Font.BOLD, 14));
+        heading.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
+
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("  Employees  ",     buildEmployeesTab());
+        tabs.addTab("  Job Positions  ", buildPositionsTab());
+
+        add(heading, BorderLayout.NORTH);
+        add(tabs,    BorderLayout.CENTER);
+    }
+
+    // ── Employees sub-tab ─────────────────────────────────────────────────────
+
+    private JPanel buildEmployeesTab() {
+        DefaultTableModel model = new DefaultTableModel(
+                new String[]{"ID", "First Name", "Last Name", "Title", "Hire Date"}, 0) {
+            public boolean isCellEditable(int r, int c) { return false; }
+        };
+        JTable table = new JTable(model);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.setAutoCreateRowSorter(true);
+        table.setRowHeight(22);
 
         JButton addBtn    = new JButton("Add");
         JButton editBtn   = new JButton("Edit");
         JButton deleteBtn = new JButton("Delete");
         JButton refreshBtn = new JButton("Refresh");
 
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        btnPanel.add(addBtn); btnPanel.add(editBtn); btnPanel.add(deleteBtn);
-        btnPanel.add(Box.createHorizontalStrut(20)); btnPanel.add(refreshBtn);
+        JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        btns.add(addBtn); btns.add(editBtn); btns.add(deleteBtn);
+        btns.add(Box.createHorizontalStrut(20)); btns.add(refreshBtn);
 
-        add(heading, BorderLayout.NORTH);
-        add(new JScrollPane(table), BorderLayout.CENTER);
-        add(btnPanel, BorderLayout.SOUTH);
+        JPanel p = new JPanel(new BorderLayout(4, 4));
+        p.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+        p.add(new JScrollPane(table), BorderLayout.CENTER);
+        p.add(btns, BorderLayout.SOUTH);
 
-        loadData();
+        Runnable load = () -> {
+            model.setRowCount(0);
+            try (Statement st = DBConnection.get().createStatement();
+                 ResultSet rs = st.executeQuery(
+                    "SELECT e.EmployeeID, e.FirstName, e.LastName, j.Title, e.HireDate " +
+                    "FROM Employee e JOIN JobPosition j ON e.PositionID=j.PositionID ORDER BY e.LastName")) {
+                while (rs.next())
+                    model.addRow(new Object[]{rs.getInt(1), rs.getString(2),
+                            rs.getString(3), rs.getString(4), rs.getString(5)});
+            } catch (SQLException e) {
+                JOptionPane.showMessageDialog(p, e.getMessage(), "Database Error", JOptionPane.ERROR_MESSAGE);
+            }
+        };
+        load.run();
 
         addBtn.addActionListener(e -> {
-            EmployeeDialog d = new EmployeeDialog(getWindow(), -1);
-            d.setVisible(true); if (d.saved) loadData();
+            EmployeeDialog d = new EmployeeDialog(SwingUtilities.getWindowAncestor(p), -1);
+            d.setVisible(true); if (d.saved) load.run();
         });
         editBtn.addActionListener(e -> {
-            int id = selectedId(); if (id < 0) return;
-            EmployeeDialog d = new EmployeeDialog(getWindow(), id);
-            d.setVisible(true); if (d.saved) loadData();
+            int row = table.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(p, "Select a row first."); return; }
+            int id = (int) model.getValueAt(table.convertRowIndexToModel(row), 0);
+            EmployeeDialog d = new EmployeeDialog(SwingUtilities.getWindowAncestor(p), id);
+            d.setVisible(true); if (d.saved) load.run();
         });
-        deleteBtn.addActionListener(e -> deleteSelected());
-        refreshBtn.addActionListener(e -> loadData());
+        deleteBtn.addActionListener(e -> {
+            int row = table.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(p, "Select a row first."); return; }
+            int id = (int) model.getValueAt(table.convertRowIndexToModel(row), 0);
+            if (JOptionPane.showConfirmDialog(p, "Delete this employee?", "Confirm",
+                    JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "DELETE FROM Employee WHERE EmployeeID=?")) {
+                ps.setInt(1, id); ps.executeUpdate(); load.run();
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(p, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+        refreshBtn.addActionListener(e -> load.run());
+        return p;
     }
 
-    private void loadData() {
-        model.setRowCount(0);
-        try (Statement st = DBConnection.get().createStatement();
-             ResultSet rs = st.executeQuery(
-                "SELECT e.EmployeeID, e.FirstName, e.LastName, j.Title, e.HireDate " +
-                "FROM Employee e JOIN JobPosition j ON e.PositionID = j.PositionID ORDER BY e.LastName")) {
-            while (rs.next())
-                model.addRow(new Object[]{rs.getInt(1), rs.getString(2),
-                        rs.getString(3), rs.getString(4), rs.getString(5)});
-        } catch (SQLException e) { showError(e); }
+    // ── Job Positions sub-tab ─────────────────────────────────────────────────
+
+    private JPanel buildPositionsTab() {
+        DefaultTableModel model = new DefaultTableModel(
+                new String[]{"ID", "Title"}, 0) {
+            public boolean isCellEditable(int r, int c) { return false; }
+        };
+        JTable table = new JTable(model);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.setAutoCreateRowSorter(true);
+        table.setRowHeight(22);
+
+        JButton addBtn    = new JButton("Add");
+        JButton editBtn   = new JButton("Edit");
+        JButton deleteBtn = new JButton("Delete");
+
+        JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        btns.add(addBtn); btns.add(editBtn); btns.add(deleteBtn);
+
+        JPanel p = new JPanel(new BorderLayout(4, 4));
+        p.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+        p.add(new JScrollPane(table), BorderLayout.CENTER);
+        p.add(btns, BorderLayout.SOUTH);
+
+        Runnable load = () -> {
+            model.setRowCount(0);
+            try (Statement st = DBConnection.get().createStatement();
+                 ResultSet rs = st.executeQuery("SELECT PositionID, Title FROM JobPosition ORDER BY Title")) {
+                while (rs.next()) model.addRow(new Object[]{rs.getInt(1), rs.getString(2)});
+            } catch (SQLException e) {
+                JOptionPane.showMessageDialog(p, e.getMessage(), "Database Error", JOptionPane.ERROR_MESSAGE);
+            }
+        };
+        load.run();
+
+        addBtn.addActionListener(e -> {
+            String title = JOptionPane.showInputDialog(p, "Position title:");
+            if (title == null || title.trim().isEmpty()) return;
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "INSERT INTO JobPosition (Title) VALUES (?)")) {
+                ps.setString(1, title.trim()); ps.executeUpdate(); load.run();
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(p, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+        editBtn.addActionListener(e -> {
+            int row = table.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(p, "Select a row first."); return; }
+            int id = (int) model.getValueAt(table.convertRowIndexToModel(row), 0);
+            String current = (String) model.getValueAt(table.convertRowIndexToModel(row), 1);
+            String title = (String) JOptionPane.showInputDialog(p, "Position title:", "Edit Position",
+                    JOptionPane.PLAIN_MESSAGE, null, null, current);
+            if (title == null || title.trim().isEmpty()) return;
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "UPDATE JobPosition SET Title=? WHERE PositionID=?")) {
+                ps.setString(1, title.trim()); ps.setInt(2, id); ps.executeUpdate(); load.run();
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(p, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+        deleteBtn.addActionListener(e -> {
+            int row = table.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(p, "Select a row first."); return; }
+            int id = (int) model.getValueAt(table.convertRowIndexToModel(row), 0);
+            if (JOptionPane.showConfirmDialog(p, "Delete this position?", "Confirm",
+                    JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "DELETE FROM JobPosition WHERE PositionID=?")) {
+                ps.setInt(1, id); ps.executeUpdate(); load.run();
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(p, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+        return p;
     }
 
-    private void deleteSelected() {
-        int id = selectedId(); if (id < 0) return;
-        int row = table.convertRowIndexToModel(table.getSelectedRow());
-        String name = model.getValueAt(row, 1) + " " + model.getValueAt(row, 2);
-        if (JOptionPane.showConfirmDialog(this,
-                "Delete employee \"" + name + "\"?", "Confirm Delete",
-                JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
-        try (PreparedStatement ps = DBConnection.get().prepareStatement(
-                "DELETE FROM Employee WHERE EmployeeID=?")) {
-            ps.setInt(1, id); ps.executeUpdate(); loadData();
-        } catch (SQLException e) { showError(e); }
-    }
-
-    private int selectedId() {
-        int row = table.getSelectedRow();
-        if (row < 0) { JOptionPane.showMessageDialog(this, "Please select a row first."); return -1; }
-        return (int) model.getValueAt(table.convertRowIndexToModel(row), 0);
-    }
-
-    private Window getWindow() { return SwingUtilities.getWindowAncestor(this); }
-    private void showError(Exception e) {
-        JOptionPane.showMessageDialog(this, e.getMessage(), "Database Error", JOptionPane.ERROR_MESSAGE);
-    }
+    // ── Employee Dialog ───────────────────────────────────────────────────────
 
     static class EmployeeDialog extends JDialog {
         boolean saved = false;
-        private final JTextField firstField  = new JTextField(15);
-        private final JTextField lastField   = new JTextField(15);
-        private final JTextField hireField   = new JTextField(10);
+        private final JTextField firstField = new JTextField(15);
+        private final JTextField lastField  = new JTextField(15);
+        private final JTextField hireField  = new JTextField(10);
         private final JComboBox<String[]> posCombo = new JComboBox<>();
         private final int empId;
 
@@ -132,13 +211,12 @@ public class EmployeesPanel extends JPanel {
         private void loadExisting() {
             try (PreparedStatement ps = DBConnection.get().prepareStatement(
                     "SELECT FirstName, LastName, PositionID, HireDate FROM Employee WHERE EmployeeID=?")) {
-                ps.setInt(1, empId);
-                ResultSet rs = ps.executeQuery();
+                ps.setInt(1, empId); ResultSet rs = ps.executeQuery();
                 if (rs.next()) {
                     firstField.setText(rs.getString(1));
                     lastField.setText(rs.getString(2));
                     String pid = rs.getString(3);
-                    hireField.setText(rs.getString(4));
+                    hireField.setText(rs.getString(4) != null ? rs.getString(4) : "");
                     for (int i = 0; i < posCombo.getItemCount(); i++)
                         if (posCombo.getItemAt(i)[0].equals(pid)) { posCombo.setSelectedIndex(i); break; }
                 }
