@@ -220,8 +220,10 @@ public class BookingPanel extends JPanel {
     }
 
     private void clearForm() {
-        firstField.setText(""); lastField.setText("");
-        emailField.setText(""); phoneField.setText("");
+        if (passengerId <= 0) {
+            firstField.setText(""); lastField.setText("");
+            emailField.setText(""); phoneField.setText("");
+        }
         voyageCombo.setSelectedIndex(0);
         cabinCombo.setSelectedIndex(0);
     }
