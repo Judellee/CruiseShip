@@ -130,10 +130,21 @@ public class BookingPanel extends JPanel {
             while (rs.next()) voyageCombo.addItem(new String[]{rs.getString(1), rs.getString(2)});
         } catch (SQLException ignored) {}
 
-        try (Statement st = DBConnection.get().createStatement();
-             ResultSet rs = st.executeQuery(
-                "SELECT c.CabinID, CONCAT(c.CabinNumber, ' — ', c.CabinType, ' (', s.ShipName, ')') " +
-                "FROM Cabin c JOIN Ship s ON c.ShipID=s.ShipID ORDER BY s.ShipName, c.CabinNumber")) {
+        voyageCombo.addActionListener(e -> reloadCabins());
+        reloadCabins();
+    }
+
+    private void reloadCabins() {
+        cabinCombo.removeAllItems();
+        if (voyageCombo.getSelectedItem() == null) return;
+        int voyageId = Integer.parseInt(((String[]) voyageCombo.getSelectedItem())[0]);
+        try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                "SELECT c.CabinID, CONCAT(c.CabinNumber, ' — ', c.CabinType) " +
+                "FROM Cabin c " +
+                "JOIN Voyage v ON c.ShipID = v.ShipID " +
+                "WHERE v.VoyageID = ? ORDER BY c.CabinNumber")) {
+            ps.setInt(1, voyageId);
+            ResultSet rs = ps.executeQuery();
             while (rs.next()) cabinCombo.addItem(new String[]{rs.getString(1), rs.getString(2)});
         } catch (SQLException ignored) {}
     }
