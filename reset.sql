@@ -1,4 +1,4 @@
--- Run this before reimporting cruise_ship.sql to wipe all tables
+﻿-- Run this before reimporting cruise_ship.sql to wipe all tables
 SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS ReservationExcursion;
 DROP TABLE IF EXISTS Payment;
