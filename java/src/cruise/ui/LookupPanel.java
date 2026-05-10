@@ -15,8 +15,9 @@ public class LookupPanel extends JPanel {
     private final DefaultTableModel model;
     private final JTable table;
     private final JTextArea detailArea   = new JTextArea(6, 40);
-    private final JButton addExcursionBtn  = new JButton("+ Add Excursion");
-    private final JButton makePaymentBtn   = new JButton("Make Payment");
+    private final JButton addExcursionBtn   = new JButton("+ Add Excursion");
+    private final JButton makePaymentBtn    = new JButton("Make Payment");
+    private final JButton cancelResBtn      = new JButton("Cancel Reservation");
 
     public LookupPanel(int passengerId) {
         super(new BorderLayout(8, 8));
@@ -63,6 +64,24 @@ public class LookupPanel extends JPanel {
 
         makePaymentBtn.setFocusPainted(false);
         makePaymentBtn.setVisible(false);
+
+        cancelResBtn.setFocusPainted(false);
+        cancelResBtn.setVisible(false);
+        cancelResBtn.addActionListener(e -> {
+            Object resId = cancelResBtn.getClientProperty("resId");
+            if (resId == null) return;
+            if (JOptionPane.showConfirmDialog(this,
+                    "Cancel reservation #" + resId + "? This cannot be undone.",
+                    "Confirm Cancellation", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "UPDATE Reservation SET Status='Cancelled' WHERE ReservationID=?")) {
+                ps.setInt(1, (int) resId);
+                ps.executeUpdate();
+                if (passengerId > 0) loadForPassenger(passengerId);
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(this, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
         makePaymentBtn.addActionListener(e -> {
             Object resId = makePaymentBtn.getClientProperty("resId");
             if (resId != null) openMakePaymentDialog((int) resId);
@@ -76,6 +95,7 @@ public class LookupPanel extends JPanel {
         JPanel excBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         excBtnRow.add(addExcursionBtn);
         excBtnRow.add(makePaymentBtn);
+        excBtnRow.add(cancelResBtn);
         detailPanel.add(excBtnRow,    BorderLayout.NORTH);
         detailPanel.add(detailScroll, BorderLayout.CENTER);
 
@@ -284,6 +304,9 @@ public class LookupPanel extends JPanel {
 
             makePaymentBtn.setVisible(true);
             makePaymentBtn.putClientProperty("resId", resId);
+
+            cancelResBtn.setVisible(true);
+            cancelResBtn.putClientProperty("resId", resId);
 
         } catch (SQLException e) {
             detailArea.setText("Error loading details: " + e.getMessage());

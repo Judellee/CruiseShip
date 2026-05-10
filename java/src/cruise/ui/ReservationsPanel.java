@@ -30,10 +30,12 @@ public class ReservationsPanel extends JPanel {
         heading.setFont(new Font("SansSerif", Font.BOLD, 14));
 
         JButton newBtn     = new JButton("New Reservation");
+        JButton cancelBtn  = new JButton("Cancel Reservation");
         JButton refreshBtn = new JButton("Refresh");
 
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         btnPanel.add(newBtn);
+        btnPanel.add(cancelBtn);
         btnPanel.add(Box.createHorizontalStrut(20));
         btnPanel.add(refreshBtn);
 
@@ -46,6 +48,20 @@ public class ReservationsPanel extends JPanel {
         newBtn.addActionListener(e -> {
             ReservationDialog d = new ReservationDialog(SwingUtilities.getWindowAncestor(this));
             d.setVisible(true); if (d.saved) loadData();
+        });
+        cancelBtn.addActionListener(e -> {
+            int row = table.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(this, "Select a reservation first."); return; }
+            int id = (int) model.getValueAt(table.convertRowIndexToModel(row), 0);
+            if (JOptionPane.showConfirmDialog(this,
+                    "Cancel reservation #" + id + "?", "Confirm",
+                    JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "UPDATE Reservation SET Status='Cancelled' WHERE ReservationID=?")) {
+                ps.setInt(1, id); ps.executeUpdate(); loadData();
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(this, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
         });
         refreshBtn.addActionListener(e -> loadData());
     }
