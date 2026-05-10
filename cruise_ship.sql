@@ -49,6 +49,21 @@ CREATE TABLE Employee (
     FOREIGN KEY (PositionID) REFERENCES JobPosition(PositionID)
 );
 
+CREATE TABLE Captain (
+    CaptainID INT PRIMARY KEY AUTO_INCREMENT,
+    EmployeeID INT,
+    LicenseNumber VARCHAR(50) NOT NULL,
+    FOREIGN KEY (EmployeeID) REFERENCES Employee(EmployeeID)
+);
+
+CREATE TABLE CaptainShipType (
+    CaptainShipTypeID INT PRIMARY KEY AUTO_INCREMENT,
+    CaptainID INT,
+    ShipTypeID INT,
+    FOREIGN KEY (CaptainID) REFERENCES Captain(CaptainID),
+    FOREIGN KEY (ShipTypeID) REFERENCES ShipType(ShipTypeID)
+);
+
 -- Crew-specific assignments
 CREATE TABLE ShipCrew (
     AssignmentID INT PRIMARY KEY AUTO_INCREMENT,
@@ -104,6 +119,16 @@ CREATE TABLE Port (
     PortID INT PRIMARY KEY AUTO_INCREMENT,
     PortName VARCHAR(100) NOT NULL,
     Country VARCHAR(50)
+);
+
+CREATE TABLE DockAssignment (
+    DockAssignmentID INT PRIMARY KEY AUTO_INCREMENT,
+    ShipID INT,
+    PortID INT,
+    DockDate DATE NOT NULL,
+    BerthNumber VARCHAR(20),
+    FOREIGN KEY (ShipID) REFERENCES Ship(ShipID),
+    FOREIGN KEY (PortID) REFERENCES Port(PortID)
 );
 
 CREATE TABLE Itinerary (
@@ -181,7 +206,9 @@ CREATE TABLE Excursion (
     ExcursionName VARCHAR(100) NOT NULL,
     Price DECIMAL(10,2),
     PortID INT,
-    FOREIGN KEY (PortID) REFERENCES Port(PortID)
+    SeasonID INT,
+    FOREIGN KEY (PortID) REFERENCES Port(PortID),
+    FOREIGN KEY (SeasonID) REFERENCES Season(SeasonID)
 );
 
 CREATE TABLE ReservationExcursion (
@@ -217,13 +244,23 @@ CREATE TABLE EntertainmentEvent (
     FOREIGN KEY (ShipID) REFERENCES Ship(ShipID)
 );
 
--- Supplies & drills
+-- Suppliers & supplies
+CREATE TABLE Supplier (
+    SupplierID INT PRIMARY KEY AUTO_INCREMENT,
+    SupplierName VARCHAR(100) NOT NULL,
+    ContactName VARCHAR(100),
+    Phone VARCHAR(20),
+    Email VARCHAR(100)
+);
+
 CREATE TABLE Supplies (
     SupplyID INT PRIMARY KEY AUTO_INCREMENT,
     SupplyName VARCHAR(100) NOT NULL,
     QuantityInStock INT,
     ShipID INT,
-    FOREIGN KEY (ShipID) REFERENCES Ship(ShipID)
+    SupplierID INT,
+    FOREIGN KEY (ShipID) REFERENCES Ship(ShipID),
+    FOREIGN KEY (SupplierID) REFERENCES Supplier(SupplierID)
 );
 
 CREATE TABLE EmergencyDrill (
@@ -267,7 +304,9 @@ INSERT INTO Employee (FirstName, LastName, PositionID, HireDate) VALUES
 ('Nyota',      'Uhura',   3, '2021-03-22'),
 ('Antoine',    'Dubois',  4, '2018-09-05'),
 ('Maria',      'Santos',  3, '2022-07-14'),
-('David',      'Chen',    2, '2020-11-30');
+('David',      'Chen',    2, '2020-11-30'),
+('James',      'Kirk',    1, '2015-01-15'),
+('Jean-Luc',   'Picard',  1, '2012-03-20');
 
 INSERT INTO Port (PortName, Country) VALUES ('Miami', 'USA'), ('Nassau', 'Bahamas'), ('Cozumel', 'Mexico'), ('Grand Cayman', 'Cayman Islands');
 
@@ -345,12 +384,13 @@ INSERT INTO Payment (Amount, PaymentDate, PaymentMethod, ReservationID) VALUES
 ( 749.50, '2026-05-01', 'Credit Card', 3),
 ( 749.50, '2026-05-10', 'Credit Card', 3);
 
--- Excursions
-INSERT INTO Excursion (ExcursionName, Price, PortID) VALUES
-('Nassau Snorkeling Tour',    79.00, 2),
-('Cozumel Mayan Ruins',      120.00, 3),
-('Grand Cayman Stingray City',95.00, 4),
-('Nassau City Walking Tour',  45.00, 2);
+-- Excursions (SeasonID NULL = available all seasons)
+INSERT INTO Excursion (ExcursionName, Price, PortID, SeasonID) VALUES
+('Nassau Snorkeling Tour',     79.00, 2, 2),
+('Cozumel Mayan Ruins',       120.00, 3, NULL),
+('Grand Cayman Stingray City', 95.00, 4, NULL),
+('Nassau City Walking Tour',   45.00, 2, NULL),
+('Nassau Holiday Festival',    55.00, 2, 4);
 
 -- Reservation excursions
 INSERT INTO ReservationExcursion (ReservationID, ExcursionID) VALUES
@@ -381,15 +421,38 @@ INSERT INTO EntertainmentEvent (EventName, EventDateTime, Venue, ShipID) VALUES
 ('Welcome Gala',          '2026-07-11 19:00:00', 'Star Ballroom',      2),
 ('Movie Under the Stars', '2026-07-12 21:00:00', 'Pool Deck',          2);
 
+-- Suppliers
+INSERT INTO Supplier (SupplierName, ContactName, Phone, Email) VALUES
+('Maritime Safety Co.',   'Robert Lane',  '555-0201', 'rlane@msafety.com'),
+('Ocean Provisions Ltd.', 'Alice Moreau', '555-0202', 'amoreau@oceanprov.com'),
+('MedSupply Marine',      'Carlos Ruiz',  '555-0203', 'cruiz@medsupply.com');
+
 -- Supplies
-INSERT INTO Supplies (SupplyName, QuantityInStock, ShipID) VALUES
-('Life Jackets',      3000, 1),
-('First Aid Kits',      50, 1),
-('Fire Extinguishers', 120, 1),
-('Sunscreen (SPF 50)', 500, 1),
-('Life Jackets',      2200, 2),
-('First Aid Kits',      40, 2),
-('Fire Extinguishers',  90, 2);
+INSERT INTO Supplies (SupplyName, QuantityInStock, ShipID, SupplierID) VALUES
+('Life Jackets',      3000, 1, 1),
+('First Aid Kits',      50, 1, 3),
+('Fire Extinguishers', 120, 1, 1),
+('Sunscreen (SPF 50)', 500, 1, 2),
+('Life Jackets',      2200, 2, 1),
+('First Aid Kits',      40, 2, 3),
+('Fire Extinguishers',  90, 2, 1);
+
+-- Captains and ship type certifications (EmployeeIDs 6=Kirk, 7=Picard)
+INSERT INTO Captain (EmployeeID, LicenseNumber) VALUES
+(6, 'CAPT-US-001'),
+(7, 'CAPT-FR-002');
+
+INSERT INTO CaptainShipType (CaptainID, ShipTypeID) VALUES
+(1, 1), (1, 2),
+(2, 1), (2, 3);
+
+-- Dock assignments
+INSERT INTO DockAssignment (ShipID, PortID, DockDate, BerthNumber) VALUES
+(1, 1, '2026-06-15', 'A-1'),
+(1, 2, '2026-06-17', 'B-3'),
+(1, 3, '2026-06-19', 'C-2'),
+(2, 1, '2026-07-10', 'A-2'),
+(2, 2, '2026-07-12', 'B-1');
 
 -- Emergency drills
 INSERT INTO EmergencyDrill (DrillDate, DrillType, ShipID) VALUES

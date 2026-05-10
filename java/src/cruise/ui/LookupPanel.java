@@ -56,10 +56,12 @@ public class LookupPanel extends JPanel {
         addExcursionBtn.setFocusPainted(false);
         addExcursionBtn.setVisible(false);
         addExcursionBtn.addActionListener(e -> {
-            Object resId  = addExcursionBtn.getClientProperty("resId");
-            Object itinId = addExcursionBtn.getClientProperty("itinId");
+            Object resId    = addExcursionBtn.getClientProperty("resId");
+            Object itinId   = addExcursionBtn.getClientProperty("itinId");
+            Object seasonId = addExcursionBtn.getClientProperty("seasonId");
             if (resId != null && itinId != null)
-                openAddExcursionDialog((int) resId, (int) itinId);
+                openAddExcursionDialog((int) resId, (int) itinId,
+                        seasonId != null ? (int) seasonId : -1);
         });
 
         makePaymentBtn.setFocusPainted(false);
@@ -190,7 +192,7 @@ public class LookupPanel extends JPanel {
                 "SELECT r.ReservationID, r.ReservationDate, r.Status, " +
                 "       CONCAT(p.FirstName,' ',p.LastName), p.Email, p.Phone, " +
                 "       s.ShipName, i.ItineraryName, v.DepartureDate, v.ReturnDate, " +
-                "       c.CabinNumber, c.CabinType, v.VoyageID, v.ItineraryID " +
+                "       c.CabinNumber, c.CabinType, v.VoyageID, v.ItineraryID, v.SeasonID " +
                 "FROM Reservation r " +
                 "JOIN Passenger p ON r.PassengerID = p.PassengerID " +
                 "JOIN Voyage v    ON r.VoyageID    = v.VoyageID " +
@@ -214,7 +216,8 @@ public class LookupPanel extends JPanel {
               .append("Return:     ").append(rs.getString(10) != null ? rs.getString(10) : "—").append("\n\n")
               .append("Cabin:      ").append(rs.getString(11)).append("  (").append(rs.getString(12)).append(")\n");
 
-            int itinId = rs.getInt(14);
+            int itinId   = rs.getInt(14);
+            int seasonId = rs.getInt(15);
 
             // Ticket info
             sb.append("\n── TICKET ──────────────────────────────\n");
@@ -299,8 +302,9 @@ public class LookupPanel extends JPanel {
 
             // Show action buttons only when a row is selected
             addExcursionBtn.setVisible(true);
-            addExcursionBtn.putClientProperty("resId",   resId);
-            addExcursionBtn.putClientProperty("itinId",  itinId);
+            addExcursionBtn.putClientProperty("resId",    resId);
+            addExcursionBtn.putClientProperty("itinId",   itinId);
+            addExcursionBtn.putClientProperty("seasonId", seasonId);
 
             makePaymentBtn.setVisible(true);
             makePaymentBtn.putClientProperty("resId", resId);
@@ -355,7 +359,7 @@ public class LookupPanel extends JPanel {
         }
     }
 
-    private void openAddExcursionDialog(int resId, int itinId) {
+    private void openAddExcursionDialog(int resId, int itinId, int seasonId) {
         JComboBox<String[]> excCombo = new JComboBox<>();
         excCombo.setRenderer((l, v, i, s, f) -> new JLabel(v != null ? v[1] : ""));
         try (PreparedStatement ps = DBConnection.get().prepareStatement(
@@ -363,8 +367,10 @@ public class LookupPanel extends JPanel {
                 "FORMAT(e.Price,2)) " +
                 "FROM Excursion e JOIN Port p ON e.PortID = p.PortID " +
                 "WHERE e.PortID IN (SELECT PortID FROM Stop WHERE ItineraryID=?) " +
+                "AND (e.SeasonID IS NULL OR e.SeasonID = ?) " +
                 "ORDER BY p.PortName, e.ExcursionName")) {
             ps.setInt(1, itinId);
+            ps.setInt(2, seasonId > 0 ? seasonId : -1);
             ResultSet rs = ps.executeQuery();
             while (rs.next()) excCombo.addItem(new String[]{rs.getString(1), rs.getString(2)});
         } catch (SQLException e) {

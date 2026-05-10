@@ -27,7 +27,7 @@ public class VoyagesPanel extends JPanel {
 
     // ── Excursions ────────────────────────────────────────────────────────────
     private final DefaultTableModel excursionModel =
-            tModel("ID", "Name", "Price", "Port", "Country");
+            tModel("ID", "Name", "Price", "Port", "Country", "Season");
     private final JTable excursionTable = makeTable(excursionModel);
 
     public VoyagesPanel() {
@@ -266,19 +266,20 @@ public class VoyagesPanel extends JPanel {
         JButton delBtn  = new JButton("Delete");
 
         addBtn.addActionListener(e -> {
-            new ExcursionDialog(SwingUtilities.getWindowAncestor(this), -1, null, null, -1)
+            new ExcursionDialog(SwingUtilities.getWindowAncestor(this), -1, null, null, -1, -1)
                     .setVisible(true);
             loadExcursions();
         });
         editBtn.addActionListener(e -> {
             int row = excursionTable.getSelectedRow();
             if (row < 0) { JOptionPane.showMessageDialog(this, "Select an excursion first."); return; }
-            int    id    = (int)    excursionModel.getValueAt(row, 0);
-            String name  = (String) excursionModel.getValueAt(row, 1);
-            Object price = excursionModel.getValueAt(row, 2);
-            int portId = portIdByName((String) excursionModel.getValueAt(row, 3));
+            int    id       = (int)    excursionModel.getValueAt(row, 0);
+            String name     = (String) excursionModel.getValueAt(row, 1);
+            Object price    = excursionModel.getValueAt(row, 2);
+            int    portId   = portIdByName((String) excursionModel.getValueAt(row, 3));
+            int    seasonId = seasonIdByName((String) excursionModel.getValueAt(row, 5));
             new ExcursionDialog(SwingUtilities.getWindowAncestor(this), id, name,
-                    price == null ? null : price.toString(), portId).setVisible(true);
+                    price == null ? null : price.toString(), portId, seasonId).setVisible(true);
             loadExcursions();
         });
         delBtn.addActionListener(e -> deleteRow(excursionTable, excursionModel,
@@ -291,13 +292,17 @@ public class VoyagesPanel extends JPanel {
         excursionModel.setRowCount(0);
         try (Statement st = DBConnection.get().createStatement();
              ResultSet rs = st.executeQuery(
-                "SELECT e.ExcursionID, e.ExcursionName, e.Price, p.PortName, p.Country " +
-                "FROM Excursion e JOIN Port p ON e.PortID = p.PortID " +
+                "SELECT e.ExcursionID, e.ExcursionName, e.Price, p.PortName, p.Country, " +
+                "       se.SeasonName " +
+                "FROM Excursion e " +
+                "JOIN Port p ON e.PortID = p.PortID " +
+                "LEFT JOIN Season se ON e.SeasonID = se.SeasonID " +
                 "ORDER BY p.PortName, e.ExcursionName")) {
             while (rs.next())
                 excursionModel.addRow(new Object[]{
                         rs.getInt(1), rs.getString(2), rs.getObject(3),
-                        rs.getString(4), rs.getString(5)});
+                        rs.getString(4), rs.getString(5),
+                        rs.getString(6) != null ? rs.getString(6) : "All"});
         } catch (SQLException e) { showError(e); }
     }
 
@@ -305,6 +310,17 @@ public class VoyagesPanel extends JPanel {
         try (PreparedStatement ps = DBConnection.get().prepareStatement(
                 "SELECT PortID FROM Port WHERE PortName=? LIMIT 1")) {
             ps.setString(1, portName);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) return rs.getInt(1);
+        } catch (SQLException ignored) {}
+        return -1;
+    }
+
+    private int seasonIdByName(String seasonName) {
+        if (seasonName == null || seasonName.equals("All")) return -1;
+        try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                "SELECT SeasonID FROM Season WHERE SeasonName=? LIMIT 1")) {
+            ps.setString(1, seasonName);
             ResultSet rs = ps.executeQuery();
             if (rs.next()) return rs.getInt(1);
         } catch (SQLException ignored) {}
@@ -493,25 +509,39 @@ public class VoyagesPanel extends JPanel {
         private final int editId;
         private final JTextField nameField  = new JTextField(20);
         private final JTextField priceField = new JTextField(10);
-        private final JComboBox<String[]> portC = buildPortCombo();
+        private final JComboBox<String[]> portC    = buildPortCombo();
+        private final JComboBox<String[]> seasonC  = buildSeasonCombo();
 
-        ExcursionDialog(Window owner, int editId, String name, String price, int portId) {
+        ExcursionDialog(Window owner, int editId, String name, String price, int portId, int seasonId) {
             super(owner, editId < 0 ? "Add Excursion" : "Edit Excursion",
                     ModalityType.APPLICATION_MODAL);
             this.editId = editId;
             if (name  != null) nameField.setText(name);
             if (price != null) priceField.setText(price);
-            if (portId > 0) selectCombo(portC, portId);
+            if (portId   > 0) selectCombo(portC,   portId);
+            if (seasonId > 0) selectCombo(seasonC, seasonId);
 
             JPanel form = ShipsPanel.formPanel();
-            ShipsPanel.addRow(form, 0, "Excursion Name", nameField);
-            ShipsPanel.addRow(form, 1, "Price",          priceField);
-            ShipsPanel.addRow(form, 2, "Port",           portC);
+            ShipsPanel.addRow(form, 0, "Excursion Name",    nameField);
+            ShipsPanel.addRow(form, 1, "Price",             priceField);
+            ShipsPanel.addRow(form, 2, "Port",              portC);
+            ShipsPanel.addRow(form, 3, "Season (optional)", seasonC);
 
             JButton save = new JButton("Save"), cancel = new JButton("Cancel");
-            ShipsPanel.addButtons(form, 3, save, cancel);
+            ShipsPanel.addButtons(form, 4, save, cancel);
             save.addActionListener(e -> save()); cancel.addActionListener(e -> dispose());
             setContentPane(form); pack(); setLocationRelativeTo(owner);
+        }
+
+        private JComboBox<String[]> buildSeasonCombo() {
+            JComboBox<String[]> cb = new JComboBox<>();
+            cb.setRenderer((l, v, i, s, f) -> new JLabel(v != null ? v[1] : ""));
+            cb.addItem(new String[]{"-1", "All Seasons"});
+            try (Statement st = DBConnection.get().createStatement();
+                 ResultSet rs = st.executeQuery("SELECT SeasonID, SeasonName FROM Season ORDER BY SeasonName")) {
+                while (rs.next()) cb.addItem(new String[]{rs.getString(1), rs.getString(2)});
+            } catch (SQLException ignored) {}
+            return cb;
         }
 
         private void save() {
@@ -521,24 +551,29 @@ public class VoyagesPanel extends JPanel {
             }
             int portId = Integer.parseInt(((String[]) portC.getSelectedItem())[0]);
             String priceStr = priceField.getText().trim();
+            int seasonId = Integer.parseInt(((String[]) seasonC.getSelectedItem())[0]);
             try {
                 if (editId < 0) {
                     try (PreparedStatement ps = DBConnection.get().prepareStatement(
-                            "INSERT INTO Excursion (ExcursionName, Price, PortID) VALUES (?,?,?)")) {
+                            "INSERT INTO Excursion (ExcursionName, Price, PortID, SeasonID) VALUES (?,?,?,?)")) {
                         ps.setString(1, name);
                         if (priceStr.isEmpty()) ps.setNull(2, Types.DECIMAL);
                         else ps.setDouble(2, Double.parseDouble(priceStr));
                         ps.setInt(3, portId);
+                        if (seasonId < 0) ps.setNull(4, Types.INTEGER);
+                        else ps.setInt(4, seasonId);
                         ps.executeUpdate();
                     }
                 } else {
                     try (PreparedStatement ps = DBConnection.get().prepareStatement(
-                            "UPDATE Excursion SET ExcursionName=?, Price=?, PortID=? WHERE ExcursionID=?")) {
+                            "UPDATE Excursion SET ExcursionName=?, Price=?, PortID=?, SeasonID=? WHERE ExcursionID=?")) {
                         ps.setString(1, name);
                         if (priceStr.isEmpty()) ps.setNull(2, Types.DECIMAL);
                         else ps.setDouble(2, Double.parseDouble(priceStr));
                         ps.setInt(3, portId);
-                        ps.setInt(4, editId);
+                        if (seasonId < 0) ps.setNull(4, Types.INTEGER);
+                        else ps.setInt(4, seasonId);
+                        ps.setInt(5, editId);
                         ps.executeUpdate();
                     }
                 }
