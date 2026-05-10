@@ -6,6 +6,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.*;
+import java.util.Properties;
 
 public class MainFrame extends JFrame {
 
@@ -43,14 +45,23 @@ public class MainFrame extends JFrame {
         tabs.addTab("  Maintenance  ",  new MaintenancePanel());
         tabs.addTab("  Supplies  ",     new SuppliesPanel());
         tabs.addTab("  Financials  ",   new FinancialsPanel());
-        tabs.addTab("  Safety & Ports  ", new SafetyPanel());
+        tabs.addTab("  Safety  ",          new SafetyPanel());
 
         add(tabs, BorderLayout.CENTER);
 
         JPanel statusBar = new JPanel(new BorderLayout());
         statusBar.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, Color.LIGHT_GRAY));
 
-        JLabel statusLabel = new JLabel("  Connected  |  Database: COSC457  |  COSC 457 Database Management Systems");
+        String dbName = "COSC457";
+        try {
+            Properties p = new Properties();
+            File ext = new File("db.properties");
+            InputStream in = ext.exists() ? new FileInputStream(ext)
+                    : getClass().getClassLoader().getResourceAsStream("db.properties");
+            if (in != null) { p.load(in); in.close(); }
+            dbName = p.getProperty("database", dbName);
+        } catch (IOException ignored) {}
+        JLabel statusLabel = new JLabel("  Connected  |  Database: " + dbName + "  |  COSC 457 Database Management Systems");
         statusLabel.setFont(new Font("SansSerif", Font.PLAIN, 11));
 
         JButton logoutBtn = new JButton("Log Out");

@@ -92,7 +92,8 @@ public class BrowseShipsPanel extends JPanel {
 
         // Events
         eventModel.setRowCount(0);
-        runQuery("SELECT EventName, EventDateTime, Venue FROM EntertainmentEvent WHERE ShipID=" + shipId +
+        runQuery("SELECT EventName, DATE_FORMAT(EventDateTime, '%Y-%m-%d %H:%i'), Venue " +
+                 "FROM EntertainmentEvent WHERE ShipID=" + shipId +
                  " ORDER BY EventDateTime", eventModel);
 
         // Decks

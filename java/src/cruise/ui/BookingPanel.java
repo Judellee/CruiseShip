@@ -132,7 +132,8 @@ public class BookingPanel extends JPanel {
 
         try (Statement st = DBConnection.get().createStatement();
              ResultSet rs = st.executeQuery(
-                "SELECT CabinID, CONCAT(CabinNumber, ' — ', CabinType, ' (', ShipID, ')') FROM Cabin ORDER BY CabinNumber")) {
+                "SELECT c.CabinID, CONCAT(c.CabinNumber, ' — ', c.CabinType, ' (', s.ShipName, ')') " +
+                "FROM Cabin c JOIN Ship s ON c.ShipID=s.ShipID ORDER BY s.ShipName, c.CabinNumber")) {
             while (rs.next()) cabinCombo.addItem(new String[]{rs.getString(1), rs.getString(2)});
         } catch (SQLException ignored) {}
     }
@@ -187,10 +188,24 @@ public class BookingPanel extends JPanel {
                 resId = keys.getInt(1);
             }
 
-            // Auto-create ticket
+            // Auto-create ticket — price based on cabin type
+            double ticketPrice;
             try (PreparedStatement ps = DBConnection.get().prepareStatement(
-                    "INSERT INTO Ticket (IssueDate, ReservationID, TicketPrice) VALUES (CURDATE(),?,NULL)")) {
+                    "SELECT CabinType FROM Cabin WHERE CabinID=?")) {
+                ps.setInt(1, cabinId);
+                ResultSet rs2 = ps.executeQuery();
+                String cabinType = rs2.next() ? rs2.getString(1) : "Interior";
+                ticketPrice = switch (cabinType.toLowerCase()) {
+                    case "suite"      -> 1499.00;
+                    case "balcony"    -> 999.00;
+                    case "ocean view" -> 799.00;
+                    default           -> 599.00;
+                };
+            }
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "INSERT INTO Ticket (IssueDate, ReservationID, TicketPrice) VALUES (CURDATE(),?,?)")) {
                 ps.setInt(1, resId);
+                ps.setDouble(2, ticketPrice);
                 ps.executeUpdate();
             }
 

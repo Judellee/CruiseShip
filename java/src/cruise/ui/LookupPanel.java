@@ -15,7 +15,8 @@ public class LookupPanel extends JPanel {
     private final DefaultTableModel model;
     private final JTable table;
     private final JTextArea detailArea   = new JTextArea(6, 40);
-    private final JButton addExcursionBtn = new JButton("+ Add Excursion");
+    private final JButton addExcursionBtn  = new JButton("+ Add Excursion");
+    private final JButton makePaymentBtn   = new JButton("Make Payment");
 
     public LookupPanel(int passengerId) {
         super(new BorderLayout(8, 8));
@@ -60,6 +61,13 @@ public class LookupPanel extends JPanel {
                 openAddExcursionDialog((int) resId, (int) itinId);
         });
 
+        makePaymentBtn.setFocusPainted(false);
+        makePaymentBtn.setVisible(false);
+        makePaymentBtn.addActionListener(e -> {
+            Object resId = makePaymentBtn.getClientProperty("resId");
+            if (resId != null) openMakePaymentDialog((int) resId);
+        });
+
         JScrollPane tableScroll  = new JScrollPane(table);
         JScrollPane detailScroll = new JScrollPane(detailArea);
 
@@ -67,6 +75,7 @@ public class LookupPanel extends JPanel {
         detailPanel.setBorder(BorderFactory.createTitledBorder("Reservation Details"));
         JPanel excBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         excBtnRow.add(addExcursionBtn);
+        excBtnRow.add(makePaymentBtn);
         detailPanel.add(excBtnRow,    BorderLayout.NORTH);
         detailPanel.add(detailScroll, BorderLayout.CENTER);
 
@@ -87,6 +96,10 @@ public class LookupPanel extends JPanel {
             topPanel.setVisible(false);
             loadForPassenger(passengerId);
         }
+    }
+
+    public void refresh() {
+        if (passengerId > 0) loadForPassenger(passengerId);
     }
 
     private void loadForPassenger(int pid) {
@@ -219,6 +232,7 @@ public class LookupPanel extends JPanel {
 
             // Booked excursions
             sb.append("\n── EXCURSIONS BOOKED ────────────────────\n");
+            double excursionTotal = 0;
             try (PreparedStatement ps2 = DBConnection.get().prepareStatement(
                     "SELECT e.ExcursionName, p.PortName, e.Price " +
                     "FROM ReservationExcursion re " +
@@ -229,24 +243,92 @@ public class LookupPanel extends JPanel {
                 ResultSet rs2 = ps2.executeQuery();
                 boolean any = false;
                 while (rs2.next()) {
+                    double excPrice = rs2.getDouble(3);
+                    excursionTotal += excPrice;
                     sb.append("  • ").append(rs2.getString(1))
                       .append(" @ ").append(rs2.getString(2))
-                      .append("  —  $").append(String.format("%.2f", rs2.getDouble(3))).append("\n");
+                      .append("  —  $").append(String.format("%.2f", excPrice)).append("\n");
                     any = true;
                 }
                 if (!any) sb.append("  None booked yet.\n");
             }
 
+            // Total
+            sb.append("\n── TOTAL ────────────────────────────────\n");
+            Object ticketPriceRaw = null;
+            try (PreparedStatement ps2 = DBConnection.get().prepareStatement(
+                    "SELECT TicketPrice FROM Ticket WHERE ReservationID=?")) {
+                ps2.setInt(1, resId);
+                ResultSet rs2 = ps2.executeQuery();
+                if (rs2.next()) ticketPriceRaw = rs2.getObject(1);
+            }
+            if (ticketPriceRaw != null) {
+                double ticketPrice = ((Number) ticketPriceRaw).doubleValue();
+                double grandTotal  = ticketPrice + excursionTotal;
+                sb.append("  Ticket:      $").append(String.format("%.2f", ticketPrice)).append("\n");
+                if (excursionTotal > 0)
+                    sb.append("  Excursions:  $").append(String.format("%.2f", excursionTotal)).append("\n");
+                sb.append("  ─────────────────────\n");
+                sb.append("  Total:       $").append(String.format("%.2f", grandTotal)).append("\n");
+            } else {
+                sb.append("  Total:       TBD\n");
+            }
+
             detailArea.setText(sb.toString());
             detailArea.setCaretPosition(0);
 
-            // Show add-excursion button only when a row is selected
+            // Show action buttons only when a row is selected
             addExcursionBtn.setVisible(true);
             addExcursionBtn.putClientProperty("resId",   resId);
             addExcursionBtn.putClientProperty("itinId",  itinId);
 
+            makePaymentBtn.setVisible(true);
+            makePaymentBtn.putClientProperty("resId", resId);
+
         } catch (SQLException e) {
             detailArea.setText("Error loading details: " + e.getMessage());
+        }
+    }
+
+    private void openMakePaymentDialog(int resId) {
+        JTextField amountField = new JTextField(10);
+        String[] methods = {"Credit Card", "Debit Card", "Cash", "Bank Transfer"};
+        JComboBox<String> methodCombo = new JComboBox<>(methods);
+
+        JPanel form = new JPanel(new java.awt.GridLayout(2, 2, 8, 8));
+        form.add(new JLabel("Amount ($):"));
+        form.add(amountField);
+        form.add(new JLabel("Payment Method:"));
+        form.add(methodCombo);
+
+        int opt = JOptionPane.showConfirmDialog(this, form,
+                "Make a Payment", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (opt != JOptionPane.OK_OPTION) return;
+
+        String amtText = amountField.getText().trim();
+        if (amtText.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Please enter an amount.");
+            return;
+        }
+        double amount;
+        try {
+            amount = Double.parseDouble(amtText);
+            if (amount <= 0) throw new NumberFormatException();
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this, "Enter a valid positive amount.");
+            return;
+        }
+
+        try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                "INSERT INTO Payment (Amount, PaymentDate, PaymentMethod, ReservationID) VALUES (?, CURDATE(), ?, ?)")) {
+            ps.setDouble(1, amount);
+            ps.setString(2, (String) methodCombo.getSelectedItem());
+            ps.setInt(3, resId);
+            ps.executeUpdate();
+            JOptionPane.showMessageDialog(this, "Payment of $" + String.format("%.2f", amount) + " recorded.");
+            showDetail();
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this, e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
