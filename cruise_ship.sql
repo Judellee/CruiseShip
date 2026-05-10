@@ -359,10 +359,10 @@ INSERT INTO ReservationExcursion (ReservationID, ExcursionID) VALUES
 -- Dining venues
 INSERT INTO DiningVenue (VenueName, ShipID, Capacity) VALUES
 ('The Grand Dining Room', 1, 400),
-('Café Soleil',           1,  80),
+('Cafe Soleil',           1,  80),
 ('The Pearl Buffet',      1, 250),
 ('Star Grill',            2, 300),
-('Voyager Café',          2,  60);
+('Voyager Cafe',          2,  60);
 
 -- Facilities
 INSERT INTO Facility (FacilityName, ShipID) VALUES
@@ -376,7 +376,7 @@ INSERT INTO Facility (FacilityName, ShipID) VALUES
 -- Entertainment events
 INSERT INTO EntertainmentEvent (EventName, EventDateTime, Venue, ShipID) VALUES
 ('Caribbean Night Show',  '2026-06-17 20:00:00', 'Main Theater',      1),
-('Live Jazz Evening',     '2026-06-18 19:30:00', 'Café Soleil',        1),
+('Live Jazz Evening',     '2026-06-18 19:30:00', 'Cafe Soleil',        1),
 ('Trivia Night',          '2026-06-19 21:00:00', 'Sky Lounge',         1),
 ('Welcome Gala',          '2026-07-11 19:00:00', 'Star Ballroom',      2),
 ('Movie Under the Stars', '2026-07-12 21:00:00', 'Pool Deck',          2);
