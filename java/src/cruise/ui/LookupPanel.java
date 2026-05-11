@@ -238,14 +238,17 @@ public class LookupPanel extends JPanel {
 
             // Payments
             sb.append("\n── PAYMENTS ─────────────────────────────\n");
+            double totalPaid = 0;
             try (PreparedStatement ps2 = DBConnection.get().prepareStatement(
                     "SELECT PaymentID, Amount, PaymentDate, PaymentMethod FROM Payment WHERE ReservationID=? ORDER BY PaymentDate")) {
                 ps2.setInt(1, resId);
                 ResultSet rs2 = ps2.executeQuery();
                 boolean any = false;
                 while (rs2.next()) {
+                    double paid = rs2.getDouble(2);
+                    totalPaid += paid;
                     sb.append("  #").append(rs2.getInt(1))
-                      .append("  $").append(String.format("%.2f", rs2.getDouble(2)))
+                      .append("  $").append(String.format("%.2f", paid))
                       .append("  ").append(rs2.getString(3))
                       .append("  (").append(rs2.getString(4)).append(")\n");
                     any = true;
@@ -286,13 +289,19 @@ public class LookupPanel extends JPanel {
                 if (rs2.next()) ticketPriceRaw = rs2.getObject(1);
             }
             if (ticketPriceRaw != null) {
-                double ticketPrice = ((Number) ticketPriceRaw).doubleValue();
-                double grandTotal  = ticketPrice + excursionTotal;
+                double ticketPrice  = ((Number) ticketPriceRaw).doubleValue();
+                double grandTotal   = ticketPrice + excursionTotal;
+                double balanceDue   = grandTotal - totalPaid;
                 sb.append("  Ticket:      $").append(String.format("%.2f", ticketPrice)).append("\n");
                 if (excursionTotal > 0)
                     sb.append("  Excursions:  $").append(String.format("%.2f", excursionTotal)).append("\n");
                 sb.append("  ─────────────────────\n");
                 sb.append("  Total:       $").append(String.format("%.2f", grandTotal)).append("\n");
+                if (totalPaid > 0) {
+                    sb.append("  Paid:       -$").append(String.format("%.2f", totalPaid)).append("\n");
+                    sb.append("  ─────────────────────\n");
+                    sb.append("  Balance Due: $").append(String.format("%.2f", Math.max(0, balanceDue))).append("\n");
+                }
             } else {
                 sb.append("  Total:       TBD\n");
             }
@@ -363,8 +372,7 @@ public class LookupPanel extends JPanel {
         JComboBox<String[]> excCombo = new JComboBox<>();
         excCombo.setRenderer((l, v, i, s, f) -> new JLabel(v != null ? v[1] : ""));
         try (PreparedStatement ps = DBConnection.get().prepareStatement(
-                "SELECT e.ExcursionID, CONCAT(e.ExcursionName, ' @ ', p.PortName, '  — $', " +
-                "FORMAT(e.Price,2)) " +
+                "SELECT e.ExcursionID, e.ExcursionName, p.PortName, e.Price " +
                 "FROM Excursion e JOIN Port p ON e.PortID = p.PortID " +
                 "WHERE e.PortID IN (SELECT PortID FROM Stop WHERE ItineraryID=?) " +
                 "AND (e.SeasonID IS NULL OR e.SeasonID = ?) " +
@@ -372,7 +380,11 @@ public class LookupPanel extends JPanel {
             ps.setInt(1, itinId);
             ps.setInt(2, seasonId > 0 ? seasonId : -1);
             ResultSet rs = ps.executeQuery();
-            while (rs.next()) excCombo.addItem(new String[]{rs.getString(1), rs.getString(2)});
+            while (rs.next()) {
+                String label = String.format("%s @ %s  -  $%.2f",
+                        rs.getString(2), rs.getString(3), rs.getDouble(4));
+                excCombo.addItem(new String[]{rs.getString(1), label});
+            }
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, e.getMessage()); return;
         }
