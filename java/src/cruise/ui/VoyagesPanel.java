@@ -30,6 +30,10 @@ public class VoyagesPanel extends JPanel {
             tModel("ID", "Name", "Price", "Port", "Country", "Season");
     private final JTable excursionTable = makeTable(excursionModel);
 
+    // ── Seasons ───────────────────────────────────────────────────────────────
+    private final DefaultTableModel seasonModel = tModel("ID", "Season Name");
+    private final JTable seasonTable = makeTable(seasonModel);
+
     public VoyagesPanel() {
         super(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -39,6 +43,7 @@ public class VoyagesPanel extends JPanel {
         tabs.addTab("  Itineraries & Stops  ", buildItinerariesTab());
         tabs.addTab("  Ports  ",               buildPortsTab());
         tabs.addTab("  Excursions  ",          buildExcursionsTab());
+        tabs.addTab("  Seasons  ",             buildSeasonsTab());
 
         add(tabs, BorderLayout.CENTER);
         loadAll();
@@ -395,6 +400,69 @@ public class VoyagesPanel extends JPanel {
         loadItineraries();
         loadPorts();
         loadExcursions();
+        loadSeasons();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Seasons tab
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private JPanel buildSeasonsTab() {
+        seasonTable.setAutoCreateRowSorter(true);
+
+        JButton addBtn  = new JButton("Add");
+        JButton editBtn = new JButton("Edit");
+        JButton delBtn  = new JButton("Delete");
+
+        addBtn.addActionListener(e -> {
+            String name = JOptionPane.showInputDialog(this, "Season name:");
+            if (name == null || name.trim().isEmpty()) return;
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "INSERT INTO Season (SeasonName) VALUES (?)")) {
+                ps.setString(1, name.trim()); ps.executeUpdate(); loadSeasons();
+            } catch (SQLException ex) { showError(ex); }
+        });
+        editBtn.addActionListener(e -> {
+            int row = seasonTable.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(this, "Select a season first."); return; }
+            int id = (int) seasonModel.getValueAt(seasonTable.convertRowIndexToModel(row), 0);
+            String current = (String) seasonModel.getValueAt(seasonTable.convertRowIndexToModel(row), 1);
+            String name = (String) JOptionPane.showInputDialog(this, "Season name:", "Edit Season",
+                    JOptionPane.PLAIN_MESSAGE, null, null, current);
+            if (name == null || name.trim().isEmpty()) return;
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "UPDATE Season SET SeasonName=? WHERE SeasonID=?")) {
+                ps.setString(1, name.trim()); ps.setInt(2, id); ps.executeUpdate(); loadSeasons();
+            } catch (SQLException ex) { showError(ex); }
+        });
+        delBtn.addActionListener(e -> {
+            int row = seasonTable.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(this, "Select a season first."); return; }
+            int id = (int) seasonModel.getValueAt(seasonTable.convertRowIndexToModel(row), 0);
+            if (JOptionPane.showConfirmDialog(this, "Delete this season? Excursions assigned to it will become season-less.",
+                    "Confirm", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try {
+                int voyages = countWhere("SELECT COUNT(*) FROM Voyage WHERE SeasonID=?", id);
+                if (voyages > 0) {
+                    JOptionPane.showMessageDialog(this,
+                        "Cannot delete — " + voyages + " voyage(s) are scheduled in this season.",
+                        "Cannot Delete", JOptionPane.WARNING_MESSAGE); return;
+                }
+                exec("UPDATE Excursion SET SeasonID=NULL WHERE SeasonID=?", id);
+                exec("DELETE FROM Season WHERE SeasonID=?", id);
+                loadSeasons();
+            } catch (SQLException ex) { showError(ex); }
+        });
+
+        return tabPanel(seasonTable, addBtn, editBtn, delBtn);
+    }
+
+    private void loadSeasons() {
+        seasonModel.setRowCount(0);
+        try (Statement st = DBConnection.get().createStatement();
+             ResultSet rs = st.executeQuery("SELECT SeasonID, SeasonName FROM Season ORDER BY SeasonName")) {
+            while (rs.next()) seasonModel.addRow(new Object[]{rs.getInt(1), rs.getString(2)});
+        } catch (SQLException e) { showError(e); }
     }
 
     private void exec(String sql, int... ids) throws SQLException {

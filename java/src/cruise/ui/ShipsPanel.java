@@ -13,7 +13,7 @@ public class ShipsPanel extends JPanel {
     private final JTable table;
 
     public ShipsPanel() {
-        super(new BorderLayout(6, 6));
+        super(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         String[] cols = {"ID", "Ship Name", "Capacity", "Type"};
@@ -28,7 +28,19 @@ public class ShipsPanel extends JPanel {
 
         JLabel heading = new JLabel("Ships");
         heading.setFont(new Font("SansSerif", Font.BOLD, 14));
+        heading.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
 
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("  Ships  ",      buildShipsTab());
+        tabs.addTab("  Ship Types  ", buildShipTypesTab());
+
+        add(heading, BorderLayout.NORTH);
+        add(tabs,    BorderLayout.CENTER);
+
+        loadData();
+    }
+
+    private JPanel buildShipsTab() {
         JButton addBtn     = new JButton("Add");
         JButton editBtn    = new JButton("Edit");
         JButton deleteBtn  = new JButton("Delete");
@@ -41,11 +53,10 @@ public class ShipsPanel extends JPanel {
         btnPanel.add(Box.createHorizontalStrut(20));
         btnPanel.add(refreshBtn);
 
-        add(heading,                BorderLayout.NORTH);
-        add(new JScrollPane(table), BorderLayout.CENTER);
-        add(btnPanel,               BorderLayout.SOUTH);
-
-        loadData();
+        JPanel p = new JPanel(new BorderLayout(6, 6));
+        p.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+        p.add(new JScrollPane(table), BorderLayout.CENTER);
+        p.add(btnPanel,               BorderLayout.SOUTH);
 
         addBtn.addActionListener(e -> {
             ShipDialog d = new ShipDialog(getWindow(), -1);
@@ -60,6 +71,85 @@ public class ShipsPanel extends JPanel {
         });
         deleteBtn.addActionListener(e -> deleteSelected());
         refreshBtn.addActionListener(e -> loadData());
+
+        return p;
+    }
+
+    private JPanel buildShipTypesTab() {
+        DefaultTableModel m = new DefaultTableModel(new String[]{"ID", "Type Name"}, 0) {
+            public boolean isCellEditable(int r, int c) { return false; }
+        };
+        JTable t = new JTable(m);
+        t.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        t.setAutoCreateRowSorter(true);
+        t.setRowHeight(22);
+
+        JButton addBtn    = new JButton("Add");
+        JButton editBtn   = new JButton("Edit");
+        JButton deleteBtn = new JButton("Delete");
+
+        JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        btns.add(addBtn); btns.add(editBtn); btns.add(deleteBtn);
+
+        JPanel p = new JPanel(new BorderLayout(4, 4));
+        p.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+        p.add(new JScrollPane(t), BorderLayout.CENTER);
+        p.add(btns, BorderLayout.SOUTH);
+
+        Runnable load = () -> {
+            m.setRowCount(0);
+            try (Statement st = DBConnection.get().createStatement();
+                 ResultSet rs = st.executeQuery("SELECT ShipTypeID, TypeName FROM ShipType ORDER BY TypeName")) {
+                while (rs.next()) m.addRow(new Object[]{rs.getInt(1), rs.getString(2)});
+            } catch (SQLException e) { showError(e); }
+        };
+        load.run();
+
+        addBtn.addActionListener(e -> {
+            String name = JOptionPane.showInputDialog(p, "Ship type name:");
+            if (name == null || name.trim().isEmpty()) return;
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "INSERT INTO ShipType (TypeName) VALUES (?)")) {
+                ps.setString(1, name.trim()); ps.executeUpdate(); load.run();
+            } catch (SQLException ex) { showError(ex); }
+        });
+        editBtn.addActionListener(e -> {
+            int row = t.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(p, "Select a type first."); return; }
+            int id = (int) m.getValueAt(t.convertRowIndexToModel(row), 0);
+            String current = (String) m.getValueAt(t.convertRowIndexToModel(row), 1);
+            String name = (String) JOptionPane.showInputDialog(p, "Ship type name:", "Edit Ship Type",
+                    JOptionPane.PLAIN_MESSAGE, null, null, current);
+            if (name == null || name.trim().isEmpty()) return;
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "UPDATE ShipType SET TypeName=? WHERE ShipTypeID=?")) {
+                ps.setString(1, name.trim()); ps.setInt(2, id); ps.executeUpdate(); load.run();
+            } catch (SQLException ex) { showError(ex); }
+        });
+        deleteBtn.addActionListener(e -> {
+            int row = t.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(p, "Select a type first."); return; }
+            int id = (int) m.getValueAt(t.convertRowIndexToModel(row), 0);
+            if (JOptionPane.showConfirmDialog(p, "Delete this ship type? Captain certifications for it will also be removed.",
+                    "Confirm", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try {
+                try (PreparedStatement chk = DBConnection.get().prepareStatement(
+                        "SELECT COUNT(*) FROM Ship WHERE ShipTypeID=?")) {
+                    chk.setInt(1, id); ResultSet rs = chk.executeQuery();
+                    if (rs.next() && rs.getInt(1) > 0) {
+                        JOptionPane.showMessageDialog(p,
+                            "Cannot delete — ships are currently assigned this type.",
+                            "Cannot Delete", JOptionPane.WARNING_MESSAGE); return;
+                    }
+                }
+                Connection con = DBConnection.get();
+                exec(con, "DELETE FROM CaptainShipType WHERE ShipTypeID=?", id);
+                exec(con, "DELETE FROM ShipType WHERE ShipTypeID=?", id);
+                load.run();
+            } catch (SQLException ex) { showError(ex); }
+        });
+
+        return p;
     }
 
     private void loadData() {
@@ -78,11 +168,19 @@ public class ShipsPanel extends JPanel {
         int row = table.convertRowIndexToModel(table.getSelectedRow());
         String name = (String) model.getValueAt(row, 1);
         if (JOptionPane.showConfirmDialog(this,
-                "Delete ship \"" + name + "\"? This will also remove its decks, cabins,\n" +
-                "crew assignments, schedules, maintenance, supplies, and events.",
+                "Delete ship \"" + name + "\"? This will also remove its voyages, reservations,\n" +
+                "decks, cabins, crew assignments, schedules, maintenance, supplies, and events.",
                 "Confirm Delete", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
         try {
             Connection con = DBConnection.get();
+            // voyages and their reservations
+            exec(con, "DELETE FROM ReservationExcursion WHERE ReservationID IN (SELECT ReservationID FROM Reservation WHERE VoyageID IN (SELECT VoyageID FROM Voyage WHERE ShipID=?))", id);
+            exec(con, "DELETE FROM Payment WHERE ReservationID IN (SELECT ReservationID FROM Reservation WHERE VoyageID IN (SELECT VoyageID FROM Voyage WHERE ShipID=?))", id);
+            exec(con, "DELETE FROM Ticket WHERE ReservationID IN (SELECT ReservationID FROM Reservation WHERE VoyageID IN (SELECT VoyageID FROM Voyage WHERE ShipID=?))", id);
+            exec(con, "DELETE FROM Reservation WHERE VoyageID IN (SELECT VoyageID FROM Voyage WHERE ShipID=?)", id);
+            exec(con, "DELETE FROM Voyage WHERE ShipID=?", id);
+            // cabins
+            exec(con, "UPDATE Reservation SET CabinID=NULL WHERE CabinID IN (SELECT CabinID FROM Cabin WHERE ShipID=?)", id);
             exec(con, "DELETE FROM CrewCabin WHERE CabinID IN (SELECT CabinID FROM Cabin WHERE ShipID=?)", id);
             exec(con, "DELETE FROM Cabin WHERE ShipID=?", id);
             exec(con, "DELETE FROM Deck WHERE ShipID=?", id);

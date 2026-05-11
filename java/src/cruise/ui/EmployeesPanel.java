@@ -91,6 +91,7 @@ public class EmployeesPanel extends JPanel {
                 exec(con, "DELETE FROM CrewCabin WHERE EmployeeID=?", id);
                 exec(con, "DELETE FROM ShipCrew WHERE EmployeeID=?", id);
                 exec(con, "DELETE FROM WorkSchedule WHERE EmployeeID=?", id);
+                exec(con, "UPDATE MaintenanceRecord SET EmployeeID=NULL WHERE EmployeeID=?", id);
                 exec(con, "DELETE FROM Employee WHERE EmployeeID=?", id);
                 load.run();
             } catch (SQLException ex) {
@@ -167,9 +168,20 @@ public class EmployeesPanel extends JPanel {
             int id = (int) model.getValueAt(table.convertRowIndexToModel(row), 0);
             if (JOptionPane.showConfirmDialog(p, "Delete this position?", "Confirm",
                     JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
-            try (PreparedStatement ps = DBConnection.get().prepareStatement(
-                    "DELETE FROM JobPosition WHERE PositionID=?")) {
-                ps.setInt(1, id); ps.executeUpdate(); load.run();
+            try {
+                try (PreparedStatement chk = DBConnection.get().prepareStatement(
+                        "SELECT COUNT(*) FROM Employee WHERE PositionID=?")) {
+                    chk.setInt(1, id); ResultSet rs = chk.executeQuery();
+                    if (rs.next() && rs.getInt(1) > 0) {
+                        JOptionPane.showMessageDialog(p,
+                            "Cannot delete — employees are assigned to this position.",
+                            "Cannot Delete", JOptionPane.WARNING_MESSAGE); return;
+                    }
+                }
+                try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                        "DELETE FROM JobPosition WHERE PositionID=?")) {
+                    ps.setInt(1, id); ps.executeUpdate(); load.run();
+                }
             } catch (SQLException ex) {
                 JOptionPane.showMessageDialog(p, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
@@ -195,12 +207,13 @@ public class EmployeesPanel extends JPanel {
         table.setAutoCreateRowSorter(true);
         table.setRowHeight(22);
 
-        JButton addBtn    = new JButton("Add");
-        JButton deleteBtn = new JButton("Delete");
+        JButton addBtn     = new JButton("Add");
+        JButton editBtn    = new JButton("Edit");
+        JButton deleteBtn  = new JButton("Delete");
         JButton refreshBtn = new JButton("Refresh");
 
         JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        btns.add(addBtn); btns.add(deleteBtn);
+        btns.add(addBtn); btns.add(editBtn); btns.add(deleteBtn);
         btns.add(Box.createHorizontalStrut(20)); btns.add(refreshBtn);
 
         JPanel p = new JPanel(new BorderLayout(4, 4));
@@ -230,7 +243,14 @@ public class EmployeesPanel extends JPanel {
         load.run();
 
         addBtn.addActionListener(e -> {
-            CaptainDialog d = new CaptainDialog(SwingUtilities.getWindowAncestor(p));
+            CaptainDialog d = new CaptainDialog(SwingUtilities.getWindowAncestor(p), -1);
+            d.setVisible(true); if (d.saved) load.run();
+        });
+        editBtn.addActionListener(e -> {
+            int row = table.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(p, "Select a captain first."); return; }
+            int id = (int) model.getValueAt(table.convertRowIndexToModel(row), 0);
+            CaptainDialog d = new CaptainDialog(SwingUtilities.getWindowAncestor(p), id);
             d.setVisible(true); if (d.saved) load.run();
         });
         deleteBtn.addActionListener(e -> {
@@ -341,14 +361,18 @@ public class EmployeesPanel extends JPanel {
 
     static class CaptainDialog extends JDialog {
         boolean saved = false;
-        private final JComboBox<String[]> empCombo     = new JComboBox<>();
-        private final JTextField licenseField           = new JTextField(20);
+        private final int captainId;
+        private final JComboBox<String[]> empCombo = new JComboBox<>();
+        private final JTextField licenseField       = new JTextField(20);
         private JList<String[]> shipTypeList;
-        private java.util.List<String[]> allShipTypes   = new java.util.ArrayList<>();
+        private final java.util.List<String[]> allShipTypes = new java.util.ArrayList<>();
 
-        CaptainDialog(Window parent) {
-            super(parent, "Add Captain", ModalityType.APPLICATION_MODAL);
-            buildUI(); pack(); setResizable(false); setLocationRelativeTo(parent);
+        CaptainDialog(Window parent, int captainId) {
+            super(parent, captainId < 0 ? "Add Captain" : "Edit Captain", ModalityType.APPLICATION_MODAL);
+            this.captainId = captainId;
+            buildUI();
+            if (captainId > 0) loadExisting();
+            pack(); setResizable(false); setLocationRelativeTo(parent);
         }
 
         private void buildUI() {
@@ -362,6 +386,7 @@ public class EmployeesPanel extends JPanel {
                 while (rs.next()) allShipTypes.add(new String[]{rs.getString(1), rs.getString(2)});
             } catch (SQLException ignored) {}
             empCombo.setRenderer((l, v, i, s, f) -> new JLabel(v != null ? v[1] : ""));
+            if (captainId > 0) empCombo.setEnabled(false);
 
             DefaultListModel<String[]> listModel = new DefaultListModel<>();
             for (String[] st : allShipTypes) listModel.addElement(st);
@@ -370,31 +395,64 @@ public class EmployeesPanel extends JPanel {
             shipTypeList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
             shipTypeList.setVisibleRowCount(4);
 
+            JLabel hint = new JLabel("Click to select, Ctrl+Click for multiple");
+            hint.setFont(hint.getFont().deriveFont(Font.ITALIC, 10f));
+            hint.setForeground(Color.GRAY);
+
             JPanel form = new JPanel(new java.awt.GridBagLayout());
             form.setBorder(BorderFactory.createEmptyBorder(12, 16, 8, 16));
             java.awt.GridBagConstraints c = new java.awt.GridBagConstraints();
             c.insets = new java.awt.Insets(4, 6, 4, 6);
             c.anchor = java.awt.GridBagConstraints.WEST;
 
-            c.gridx = 0; c.gridy = 0; form.add(new JLabel("Employee:"),      c);
-            c.gridx = 1;              form.add(empCombo,                      c);
-            c.gridx = 0; c.gridy = 1; form.add(new JLabel("License #:"),     c);
-            c.gridx = 1;              form.add(licenseField,                  c);
+            c.gridx = 0; c.gridy = 0; form.add(new JLabel("Employee:"),       c);
+            c.gridx = 1;              form.add(empCombo,                       c);
+            c.gridx = 0; c.gridy = 1; form.add(new JLabel("License #:"),      c);
+            c.gridx = 1;              form.add(licenseField,                   c);
             c.gridx = 0; c.gridy = 2; c.anchor = java.awt.GridBagConstraints.NORTHWEST;
-                                      form.add(new JLabel("Certified Types:"),c);
+                                      form.add(new JLabel("Certified Types:"), c);
             c.gridx = 1; c.anchor = java.awt.GridBagConstraints.WEST;
-                                      form.add(new JScrollPane(shipTypeList), c);
+                                      form.add(new JScrollPane(shipTypeList),  c);
+            c.gridx = 1; c.gridy = 3; form.add(hint, c);
 
             JButton save = new JButton("Save"), cancel = new JButton("Cancel");
             JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
             btnRow.add(save); btnRow.add(cancel);
-            c.gridx = 0; c.gridy = 3; c.gridwidth = 2;
+            c.gridx = 0; c.gridy = 4; c.gridwidth = 2;
             c.anchor = java.awt.GridBagConstraints.EAST;
             form.add(btnRow, c);
 
             save.addActionListener(e -> save()); cancel.addActionListener(e -> dispose());
             getRootPane().setDefaultButton(save);
             add(form);
+        }
+
+        private void loadExisting() {
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "SELECT EmployeeID, LicenseNumber FROM Captain WHERE CaptainID=?")) {
+                ps.setInt(1, captainId);
+                ResultSet rs = ps.executeQuery();
+                if (rs.next()) {
+                    String eid = String.valueOf(rs.getInt(1));
+                    for (int i = 0; i < empCombo.getItemCount(); i++)
+                        if (empCombo.getItemAt(i)[0].equals(eid)) { empCombo.setSelectedIndex(i); break; }
+                    licenseField.setText(rs.getString(2));
+                }
+            } catch (SQLException ignored) {}
+
+            java.util.Set<String> certified = new java.util.HashSet<>();
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "SELECT ShipTypeID FROM CaptainShipType WHERE CaptainID=?")) {
+                ps.setInt(1, captainId);
+                ResultSet rs = ps.executeQuery();
+                while (rs.next()) certified.add(rs.getString(1));
+            } catch (SQLException ignored) {}
+
+            java.util.List<Integer> indices = new java.util.ArrayList<>();
+            for (int i = 0; i < allShipTypes.size(); i++)
+                if (certified.contains(allShipTypes.get(i)[0])) indices.add(i);
+            int[] arr = indices.stream().mapToInt(Integer::intValue).toArray();
+            shipTypeList.setSelectedIndices(arr);
         }
 
         private void save() {
@@ -407,20 +465,32 @@ public class EmployeesPanel extends JPanel {
             }
             int empId = Integer.parseInt(((String[]) empCombo.getSelectedItem())[0]);
             try {
-                int captainId;
-                try (PreparedStatement ps = DBConnection.get().prepareStatement(
-                        "INSERT INTO Captain (EmployeeID, LicenseNumber) VALUES (?,?)",
-                        Statement.RETURN_GENERATED_KEYS)) {
-                    ps.setInt(1, empId); ps.setString(2, license);
-                    ps.executeUpdate();
-                    ResultSet keys = ps.getGeneratedKeys(); keys.next();
-                    captainId = keys.getInt(1);
+                int cid;
+                if (captainId < 0) {
+                    try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                            "INSERT INTO Captain (EmployeeID, LicenseNumber) VALUES (?,?)",
+                            Statement.RETURN_GENERATED_KEYS)) {
+                        ps.setInt(1, empId); ps.setString(2, license);
+                        ps.executeUpdate();
+                        ResultSet keys = ps.getGeneratedKeys(); keys.next();
+                        cid = keys.getInt(1);
+                    }
+                } else {
+                    try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                            "UPDATE Captain SET LicenseNumber=? WHERE CaptainID=?")) {
+                        ps.setString(1, license); ps.setInt(2, captainId);
+                        ps.executeUpdate();
+                    }
+                    cid = captainId;
+                    try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                            "DELETE FROM CaptainShipType WHERE CaptainID=?")) {
+                        ps.setInt(1, cid); ps.executeUpdate();
+                    }
                 }
                 for (String[] st : shipTypeList.getSelectedValuesList()) {
                     try (PreparedStatement ps = DBConnection.get().prepareStatement(
                             "INSERT INTO CaptainShipType (CaptainID, ShipTypeID) VALUES (?,?)")) {
-                        ps.setInt(1, captainId);
-                        ps.setInt(2, Integer.parseInt(st[0]));
+                        ps.setInt(1, cid); ps.setInt(2, Integer.parseInt(st[0]));
                         ps.executeUpdate();
                     }
                 }

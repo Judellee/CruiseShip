@@ -39,10 +39,11 @@ public class SuppliesPanel extends JPanel {
         table.setRowHeight(22);
 
         JButton addBtn     = new JButton("Add");
+        JButton editBtn    = new JButton("Edit");
         JButton refreshBtn = new JButton("Refresh");
 
         JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        btns.add(addBtn);
+        btns.add(addBtn); btns.add(editBtn);
         btns.add(Box.createHorizontalStrut(20));
         btns.add(refreshBtn);
 
@@ -71,7 +72,14 @@ public class SuppliesPanel extends JPanel {
         load.run();
 
         addBtn.addActionListener(e -> {
-            SupplyDialog d = new SupplyDialog(SwingUtilities.getWindowAncestor(p));
+            SupplyDialog d = new SupplyDialog(SwingUtilities.getWindowAncestor(p), -1);
+            d.setVisible(true); if (d.saved) load.run();
+        });
+        editBtn.addActionListener(e -> {
+            int row = table.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(p, "Select a supply first."); return; }
+            int id = (int) model.getValueAt(table.convertRowIndexToModel(row), 0);
+            SupplyDialog d = new SupplyDialog(SwingUtilities.getWindowAncestor(p), id);
             d.setVisible(true); if (d.saved) load.run();
         });
         refreshBtn.addActionListener(e -> load.run());
@@ -157,13 +165,15 @@ public class SuppliesPanel extends JPanel {
 
     static class SupplyDialog extends JDialog {
         boolean saved = false;
+        private final int editId;
         private final JTextField nameField = new JTextField(20);
         private final JTextField qtyField  = new JTextField(8);
         private final JComboBox<String[]> shipCombo     = new JComboBox<>();
         private final JComboBox<String[]> supplierCombo = new JComboBox<>();
 
-        SupplyDialog(Window parent) {
-            super(parent, "Add Supply", ModalityType.APPLICATION_MODAL);
+        SupplyDialog(Window parent, int editId) {
+            super(parent, editId < 0 ? "Add Supply" : "Edit Supply", ModalityType.APPLICATION_MODAL);
+            this.editId = editId;
             try (Statement st = DBConnection.get().createStatement()) {
                 ResultSet rs = st.executeQuery("SELECT ShipID, ShipName FROM Ship ORDER BY ShipName");
                 while (rs.next()) shipCombo.addItem(new String[]{rs.getString(1), rs.getString(2)});
@@ -173,6 +183,8 @@ public class SuppliesPanel extends JPanel {
             } catch (SQLException ignored) {}
             shipCombo.setRenderer((l, v, i, s, f)     -> new JLabel(v != null ? v[1] : ""));
             supplierCombo.setRenderer((l, v, i, s, f) -> new JLabel(v != null ? v[1] : ""));
+
+            if (editId > 0) loadExisting();
 
             JPanel form = ShipsPanel.formPanel();
             ShipsPanel.addRow(form, 0, "Supply Name:", nameField);
@@ -187,6 +199,27 @@ public class SuppliesPanel extends JPanel {
             add(form); pack(); setResizable(false); setLocationRelativeTo(parent);
         }
 
+        private void loadExisting() {
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "SELECT SupplyName, ShipID, QuantityInStock, SupplierID FROM Supplies WHERE SupplyID=?")) {
+                ps.setInt(1, editId);
+                ResultSet rs = ps.executeQuery();
+                if (rs.next()) {
+                    nameField.setText(rs.getString(1));
+                    qtyField.setText(String.valueOf(rs.getInt(3)));
+                    String shipId = String.valueOf(rs.getInt(2));
+                    for (int i = 0; i < shipCombo.getItemCount(); i++)
+                        if (shipCombo.getItemAt(i)[0].equals(shipId)) { shipCombo.setSelectedIndex(i); break; }
+                    int suppId = rs.getInt(4);
+                    if (!rs.wasNull()) {
+                        String sid = String.valueOf(suppId);
+                        for (int i = 0; i < supplierCombo.getItemCount(); i++)
+                            if (supplierCombo.getItemAt(i)[0].equals(sid)) { supplierCombo.setSelectedIndex(i); break; }
+                    }
+                }
+            } catch (SQLException ignored) {}
+        }
+
         private void save() {
             String name = nameField.getText().trim(), qtyStr = qtyField.getText().trim();
             if (name.isEmpty() || qtyStr.isEmpty() || shipCombo.getSelectedItem() == null) {
@@ -196,14 +229,25 @@ public class SuppliesPanel extends JPanel {
             try { qty = Integer.parseInt(qtyStr); }
             catch (NumberFormatException e) { JOptionPane.showMessageDialog(this, "Qty must be a number."); return; }
             int supplierId = Integer.parseInt(((String[]) supplierCombo.getSelectedItem())[0]);
-            try (PreparedStatement ps = DBConnection.get().prepareStatement(
-                    "INSERT INTO Supplies (SupplyName, ShipID, QuantityInStock, SupplierID) VALUES (?,?,?,?)")) {
-                ps.setString(1, name);
-                ps.setInt(2, Integer.parseInt(((String[]) shipCombo.getSelectedItem())[0]));
-                ps.setInt(3, qty);
-                if (supplierId < 0) ps.setNull(4, Types.INTEGER);
-                else ps.setInt(4, supplierId);
-                ps.executeUpdate(); saved = true; dispose();
+            int shipId = Integer.parseInt(((String[]) shipCombo.getSelectedItem())[0]);
+            try {
+                if (editId < 0) {
+                    try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                            "INSERT INTO Supplies (SupplyName, ShipID, QuantityInStock, SupplierID) VALUES (?,?,?,?)")) {
+                        ps.setString(1, name); ps.setInt(2, shipId); ps.setInt(3, qty);
+                        if (supplierId < 0) ps.setNull(4, Types.INTEGER); else ps.setInt(4, supplierId);
+                        ps.executeUpdate();
+                    }
+                } else {
+                    try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                            "UPDATE Supplies SET SupplyName=?, ShipID=?, QuantityInStock=?, SupplierID=? WHERE SupplyID=?")) {
+                        ps.setString(1, name); ps.setInt(2, shipId); ps.setInt(3, qty);
+                        if (supplierId < 0) ps.setNull(4, Types.INTEGER); else ps.setInt(4, supplierId);
+                        ps.setInt(5, editId);
+                        ps.executeUpdate();
+                    }
+                }
+                saved = true; dispose();
             } catch (SQLException e) {
                 JOptionPane.showMessageDialog(this, e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }

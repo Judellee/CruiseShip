@@ -184,18 +184,39 @@ public class ShipDetailsPanel extends JPanel {
         int id = (int) m.getValueAt(table.convertRowIndexToModel(row), 0);
         if (JOptionPane.showConfirmDialog(this, "Delete this record?", "Confirm",
                 JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
-        String sql;
-        switch (type) {
-            case "deck":     sql = "DELETE FROM Deck WHERE DeckID=?"; break;
-            case "cabin":    sql = "DELETE FROM Cabin WHERE CabinID=?"; break;
-            case "dining":   sql = "DELETE FROM DiningVenue WHERE DiningVenueID=?"; break;
-            case "facility": sql = "DELETE FROM Facility WHERE FacilityID=?"; break;
-            default:         sql = "DELETE FROM EntertainmentEvent WHERE EventID=?"; break;
-        }
-        try (PreparedStatement ps = DBConnection.get().prepareStatement(sql)) {
-            ps.setInt(1, id); ps.executeUpdate(); loadAll();
+        try {
+            Connection con = DBConnection.get();
+            switch (type) {
+                case "deck":
+                    exec(con, "UPDATE Reservation SET CabinID=NULL WHERE CabinID IN (SELECT CabinID FROM Cabin WHERE DeckID=?)", id);
+                    exec(con, "DELETE FROM CrewCabin WHERE CabinID IN (SELECT CabinID FROM Cabin WHERE DeckID=?)", id);
+                    exec(con, "DELETE FROM Cabin WHERE DeckID=?", id);
+                    exec(con, "DELETE FROM Deck WHERE DeckID=?", id);
+                    break;
+                case "cabin":
+                    exec(con, "UPDATE Reservation SET CabinID=NULL WHERE CabinID=?", id);
+                    exec(con, "DELETE FROM CrewCabin WHERE CabinID=?", id);
+                    exec(con, "DELETE FROM Cabin WHERE CabinID=?", id);
+                    break;
+                case "dining":
+                    exec(con, "DELETE FROM DiningVenue WHERE DiningVenueID=?", id);
+                    break;
+                case "facility":
+                    exec(con, "DELETE FROM Facility WHERE FacilityID=?", id);
+                    break;
+                default:
+                    exec(con, "DELETE FROM EntertainmentEvent WHERE EventID=?", id);
+                    break;
+            }
+            loadAll();
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void exec(Connection con, String sql, int id) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, id); ps.executeUpdate();
         }
     }
 
