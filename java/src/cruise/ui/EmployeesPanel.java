@@ -82,11 +82,17 @@ public class EmployeesPanel extends JPanel {
             int row = table.getSelectedRow();
             if (row < 0) { JOptionPane.showMessageDialog(p, "Select a row first."); return; }
             int id = (int) model.getValueAt(table.convertRowIndexToModel(row), 0);
-            if (JOptionPane.showConfirmDialog(p, "Delete this employee?", "Confirm",
-                    JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
-            try (PreparedStatement ps = DBConnection.get().prepareStatement(
-                    "DELETE FROM Employee WHERE EmployeeID=?")) {
-                ps.setInt(1, id); ps.executeUpdate(); load.run();
+            if (JOptionPane.showConfirmDialog(p, "Delete this employee? Their crew assignments and schedules will also be removed.",
+                    "Confirm", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try {
+                Connection con = DBConnection.get();
+                exec(con, "DELETE FROM CaptainShipType WHERE CaptainID IN (SELECT CaptainID FROM Captain WHERE EmployeeID=?)", id);
+                exec(con, "DELETE FROM Captain WHERE EmployeeID=?", id);
+                exec(con, "DELETE FROM CrewCabin WHERE EmployeeID=?", id);
+                exec(con, "DELETE FROM ShipCrew WHERE EmployeeID=?", id);
+                exec(con, "DELETE FROM WorkSchedule WHERE EmployeeID=?", id);
+                exec(con, "DELETE FROM Employee WHERE EmployeeID=?", id);
+                load.run();
             } catch (SQLException ex) {
                 JOptionPane.showMessageDialog(p, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
@@ -169,6 +175,12 @@ public class EmployeesPanel extends JPanel {
             }
         });
         return p;
+    }
+
+    private static void exec(Connection con, String sql, int id) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, id); ps.executeUpdate();
+        }
     }
 
     // ── Captains sub-tab ──────────────────────────────────────────────────────

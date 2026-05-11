@@ -78,14 +78,33 @@ public class ShipsPanel extends JPanel {
         int row = table.convertRowIndexToModel(table.getSelectedRow());
         String name = (String) model.getValueAt(row, 1);
         if (JOptionPane.showConfirmDialog(this,
-                "Delete ship \"" + name + "\"?", "Confirm Delete",
-                JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
-        try (PreparedStatement ps = DBConnection.get().prepareStatement(
-                "DELETE FROM Ship WHERE ShipID=?")) {
-            ps.setInt(1, id);
-            ps.executeUpdate();
+                "Delete ship \"" + name + "\"? This will also remove its decks, cabins,\n" +
+                "crew assignments, schedules, maintenance, supplies, and events.",
+                "Confirm Delete", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        try {
+            Connection con = DBConnection.get();
+            exec(con, "DELETE FROM CrewCabin WHERE CabinID IN (SELECT CabinID FROM Cabin WHERE ShipID=?)", id);
+            exec(con, "DELETE FROM Cabin WHERE ShipID=?", id);
+            exec(con, "DELETE FROM Deck WHERE ShipID=?", id);
+            exec(con, "DELETE FROM WorkSchedule WHERE ShipID=?", id);
+            exec(con, "DELETE FROM ShipCrew WHERE ShipID=?", id);
+            exec(con, "DELETE FROM MaintenanceRecord WHERE MaintenanceID IN (SELECT MaintenanceID FROM Maintenance WHERE ShipID=?)", id);
+            exec(con, "DELETE FROM Maintenance WHERE ShipID=?", id);
+            exec(con, "DELETE FROM DockAssignment WHERE ShipID=?", id);
+            exec(con, "DELETE FROM DiningVenue WHERE ShipID=?", id);
+            exec(con, "DELETE FROM Facility WHERE ShipID=?", id);
+            exec(con, "DELETE FROM EntertainmentEvent WHERE ShipID=?", id);
+            exec(con, "DELETE FROM EmergencyDrill WHERE ShipID=?", id);
+            exec(con, "DELETE FROM Supplies WHERE ShipID=?", id);
+            exec(con, "DELETE FROM Ship WHERE ShipID=?", id);
             loadData();
         } catch (SQLException e) { showError(e); }
+    }
+
+    private void exec(Connection con, String sql, int id) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, id); ps.executeUpdate();
+        }
     }
 
     private int selectedId() {

@@ -67,9 +67,18 @@ public class VoyagesPanel extends JPanel {
             int id = (int) voyageModel.getValueAt(voyageTable.convertRowIndexToModel(row), 0);
             if (JOptionPane.showConfirmDialog(this, "Delete voyage #" + id + "?", "Confirm",
                     JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
-            try (PreparedStatement ps = DBConnection.get().prepareStatement(
-                    "DELETE FROM Voyage WHERE VoyageID=?")) {
-                ps.setInt(1, id); ps.executeUpdate(); loadVoyages();
+            try {
+                int res = countWhere("SELECT COUNT(*) FROM Reservation WHERE VoyageID=?", id);
+                if (res > 0) {
+                    JOptionPane.showMessageDialog(this,
+                        "Cannot delete — " + res + " reservation(s) are linked to this voyage.",
+                        "Cannot Delete", JOptionPane.WARNING_MESSAGE); return;
+                }
+                exec("DELETE FROM DockAssignment WHERE ShipID IN (SELECT ShipID FROM Voyage WHERE VoyageID=?) " +
+                     "AND DockDate BETWEEN (SELECT DepartureDate FROM Voyage WHERE VoyageID=?) " +
+                     "AND IFNULL((SELECT ReturnDate FROM Voyage WHERE VoyageID=?), '9999-12-31')", id, id, id);
+                exec("DELETE FROM Voyage WHERE VoyageID=?", id);
+                loadVoyages();
             } catch (SQLException ex) { showError(ex); }
         });
         refreshBtn.addActionListener(e -> loadVoyages());
@@ -103,8 +112,24 @@ public class VoyagesPanel extends JPanel {
         JButton delItinBtn = new JButton("Delete Itinerary");
 
         addItinBtn.addActionListener(e -> addItinerary());
-        delItinBtn.addActionListener(e -> deleteRow(itinTable, itinModel,
-                "DELETE FROM Itinerary WHERE ItineraryID=?", "itinerary"));
+        delItinBtn.addActionListener(e -> {
+            int row = itinTable.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(this, "Select an itinerary first."); return; }
+            int id = (int) itinModel.getValueAt(row, 0);
+            if (JOptionPane.showConfirmDialog(this, "Delete this itinerary and all its stops?", "Confirm",
+                    JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try {
+                int voyages = countWhere("SELECT COUNT(*) FROM Voyage WHERE ItineraryID=?", id);
+                if (voyages > 0) {
+                    JOptionPane.showMessageDialog(this,
+                        "Cannot delete — " + voyages + " voyage(s) use this itinerary.",
+                        "Cannot Delete", JOptionPane.WARNING_MESSAGE); return;
+                }
+                exec("DELETE FROM Stop WHERE ItineraryID=?", id);
+                exec("DELETE FROM Itinerary WHERE ItineraryID=?", id);
+                loadItineraries();
+            } catch (SQLException ex) { showError(ex); }
+        });
 
         JPanel itinBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         itinBtnRow.add(addItinBtn);
@@ -119,8 +144,15 @@ public class VoyagesPanel extends JPanel {
         JButton delStopBtn = new JButton("Delete Stop");
 
         addStopBtn.addActionListener(e -> addStop());
-        delStopBtn.addActionListener(e -> deleteRow(stopTable, stopModel,
-                "DELETE FROM Stop WHERE StopID=?", "stop"));
+        delStopBtn.addActionListener(e -> {
+            int row = stopTable.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(this, "Select a stop first."); return; }
+            int id = (int) stopModel.getValueAt(row, 0);
+            if (JOptionPane.showConfirmDialog(this, "Delete this stop?", "Confirm",
+                    JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try { exec("DELETE FROM Stop WHERE StopID=?", id); loadStops(); }
+            catch (SQLException ex) { showError(ex); }
+        });
 
         JPanel stopBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         stopBtnRow.add(addStopBtn);
@@ -230,8 +262,25 @@ public class VoyagesPanel extends JPanel {
             loadPorts();
         });
         editBtn.addActionListener(e -> editPort());
-        delBtn.addActionListener(e -> deleteRow(portTable, portModel,
-                "DELETE FROM Port WHERE PortID=?", "port"));
+        delBtn.addActionListener(e -> {
+            int row = portTable.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(this, "Select a port first."); return; }
+            int id = (int) portModel.getValueAt(row, 0);
+            if (JOptionPane.showConfirmDialog(this, "Delete this port? Its stops and dock assignments will also be removed.",
+                    "Confirm", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try {
+                int exc = countWhere("SELECT COUNT(*) FROM Excursion WHERE PortID=?", id);
+                if (exc > 0) {
+                    JOptionPane.showMessageDialog(this,
+                        "Cannot delete — " + exc + " excursion(s) are based at this port.",
+                        "Cannot Delete", JOptionPane.WARNING_MESSAGE); return;
+                }
+                exec("DELETE FROM Stop WHERE PortID=?", id);
+                exec("DELETE FROM DockAssignment WHERE PortID=?", id);
+                exec("DELETE FROM Port WHERE PortID=?", id);
+                loadPorts();
+            } catch (SQLException ex) { showError(ex); }
+        });
 
         return tabPanel(portTable, addBtn, editBtn, delBtn);
     }
@@ -282,8 +331,18 @@ public class VoyagesPanel extends JPanel {
                     price == null ? null : price.toString(), portId, seasonId).setVisible(true);
             loadExcursions();
         });
-        delBtn.addActionListener(e -> deleteRow(excursionTable, excursionModel,
-                "DELETE FROM Excursion WHERE ExcursionID=?", "excursion"));
+        delBtn.addActionListener(e -> {
+            int row = excursionTable.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(this, "Select an excursion first."); return; }
+            int id = (int) excursionModel.getValueAt(row, 0);
+            if (JOptionPane.showConfirmDialog(this, "Delete this excursion?", "Confirm",
+                    JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try {
+                exec("DELETE FROM ReservationExcursion WHERE ExcursionID=?", id);
+                exec("DELETE FROM Excursion WHERE ExcursionID=?", id);
+                loadExcursions();
+            } catch (SQLException ex) { showError(ex); }
+        });
 
         return tabPanel(excursionTable, addBtn, editBtn, delBtn);
     }
@@ -338,15 +397,19 @@ public class VoyagesPanel extends JPanel {
         loadExcursions();
     }
 
-    private void deleteRow(JTable tbl, DefaultTableModel mdl, String sql, String label) {
-        int row = tbl.getSelectedRow();
-        if (row < 0) { JOptionPane.showMessageDialog(this, "Select a " + label + " first."); return; }
-        int id = (int) mdl.getValueAt(row, 0);
-        if (JOptionPane.showConfirmDialog(this, "Delete this " + label + "?", "Confirm",
-                JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+    private void exec(String sql, int... ids) throws SQLException {
         try (PreparedStatement ps = DBConnection.get().prepareStatement(sql)) {
-            ps.setInt(1, id); ps.executeUpdate(); loadAll();
-        } catch (SQLException e) { showError(e); }
+            for (int i = 0; i < ids.length; i++) ps.setInt(i + 1, ids[i]);
+            ps.executeUpdate();
+        }
+    }
+
+    private int countWhere(String sql, int id) throws SQLException {
+        try (PreparedStatement ps = DBConnection.get().prepareStatement(sql)) {
+            ps.setInt(1, id);
+            ResultSet rs = ps.executeQuery();
+            return rs.next() ? rs.getInt(1) : 0;
+        }
     }
 
     private void showError(Exception e) {

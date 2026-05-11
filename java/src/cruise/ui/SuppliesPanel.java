@@ -134,11 +134,18 @@ public class SuppliesPanel extends JPanel {
             int row = table.getSelectedRow();
             if (row < 0) { JOptionPane.showMessageDialog(p, "Select a supplier first."); return; }
             int id = (int) model.getValueAt(table.convertRowIndexToModel(row), 0);
-            if (JOptionPane.showConfirmDialog(p, "Delete this supplier?", "Confirm",
-                    JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
-            try (PreparedStatement ps = DBConnection.get().prepareStatement(
-                    "DELETE FROM Supplier WHERE SupplierID=?")) {
-                ps.setInt(1, id); ps.executeUpdate(); load.run();
+            if (JOptionPane.showConfirmDialog(p, "Delete this supplier? Supply items linked to them will remain but lose the supplier reference.",
+                    "Confirm", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try {
+                try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                        "UPDATE Supplies SET SupplierID=NULL WHERE SupplierID=?")) {
+                    ps.setInt(1, id); ps.executeUpdate();
+                }
+                try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                        "DELETE FROM Supplier WHERE SupplierID=?")) {
+                    ps.setInt(1, id); ps.executeUpdate();
+                }
+                load.run();
             } catch (SQLException ex) {
                 JOptionPane.showMessageDialog(p, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
