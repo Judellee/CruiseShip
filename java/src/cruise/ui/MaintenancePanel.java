@@ -212,11 +212,10 @@ public class MaintenancePanel extends JPanel {
             loadCombo(taskCombo,
                 "SELECT MaintenanceID, CONCAT(MaintenanceName,' (',ShipName,')') " +
                 "FROM Maintenance m JOIN Ship s ON m.ShipID=s.ShipID ORDER BY MaintenanceName");
-            techCombo.addItem(new String[]{"-1", "— None —"});
-            loadCombo(techCombo,
-                "SELECT EmployeeID, CONCAT(FirstName,' ',LastName) FROM Employee ORDER BY LastName");
             for (JComboBox<String[]> cb : new JComboBox[]{taskCombo, techCombo})
                 cb.setRenderer((l, v, i, s, f) -> new JLabel(v != null ? v[1] : ""));
+            taskCombo.addActionListener(e -> reloadTech());
+            reloadTech();
 
             JPanel form = ShipsPanel.formPanel();
             ShipsPanel.addRow(form, 0, "Maintenance Task:",  taskCombo);
@@ -230,6 +229,23 @@ public class MaintenancePanel extends JPanel {
             save.addActionListener(e -> save()); cancel.addActionListener(e -> dispose());
             getRootPane().setDefaultButton(save);
             add(form);
+        }
+
+        private void reloadTech() {
+            techCombo.removeAllItems();
+            techCombo.addItem(new String[]{"-1", "— None —"});
+            if (taskCombo.getSelectedItem() == null) return;
+            String taskId = ((String[]) taskCombo.getSelectedItem())[0];
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "SELECT DISTINCT e.EmployeeID, CONCAT(e.FirstName,' ',e.LastName) " +
+                    "FROM Employee e " +
+                    "JOIN ShipCrew sc ON e.EmployeeID = sc.EmployeeID " +
+                    "JOIN Maintenance m ON m.ShipID = sc.ShipID " +
+                    "WHERE m.MaintenanceID = ? ORDER BY e.LastName")) {
+                ps.setInt(1, Integer.parseInt(taskId));
+                ResultSet rs = ps.executeQuery();
+                while (rs.next()) techCombo.addItem(new String[]{rs.getString(1), rs.getString(2)});
+            } catch (SQLException ignored) {}
         }
 
         private void loadCombo(JComboBox<String[]> cb, String sql) {
@@ -248,6 +264,7 @@ public class MaintenancePanel extends JPanel {
                     String taskId = String.valueOf(rs.getInt(1));
                     for (int i = 0; i < taskCombo.getItemCount(); i++)
                         if (taskCombo.getItemAt(i)[0].equals(taskId)) { taskCombo.setSelectedIndex(i); break; }
+                    reloadTech(); // ensure tech list matches selected task's ship
                     int empId = rs.getInt(2);
                     if (!rs.wasNull()) {
                         String eid = String.valueOf(empId);

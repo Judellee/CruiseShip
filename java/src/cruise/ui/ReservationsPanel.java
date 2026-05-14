@@ -106,10 +106,10 @@ public class ReservationsPanel extends JPanel {
             loadCombo(voyageCombo,
                 "SELECT v.VoyageID, CONCAT(s.ShipName,' — ',v.DepartureDate) " +
                 "FROM Voyage v JOIN Ship s ON v.ShipID=s.ShipID ORDER BY v.DepartureDate");
-            loadCombo(cabinCombo,
-                "SELECT CabinID, CONCAT(CabinNumber,' (',CabinType,')') FROM Cabin ORDER BY CabinNumber");
             for (JComboBox<String[]> cb : new JComboBox[]{passengerCombo, voyageCombo, cabinCombo})
                 cb.setRenderer((l, v, i, s, f) -> new JLabel(v != null ? v[1] : ""));
+            voyageCombo.addActionListener(e -> reloadCabins());
+            reloadCabins();
 
             JPanel form = ShipsPanel.formPanel();
             ShipsPanel.addRow(form, 0, "Passenger:", passengerCombo);
@@ -122,6 +122,20 @@ public class ReservationsPanel extends JPanel {
             save.addActionListener(e -> save()); cancel.addActionListener(e -> dispose());
             getRootPane().setDefaultButton(save);
             add(form);
+        }
+
+        private void reloadCabins() {
+            cabinCombo.removeAllItems();
+            if (voyageCombo.getSelectedItem() == null) return;
+            String voyageId = ((String[]) voyageCombo.getSelectedItem())[0];
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "SELECT c.CabinID, CONCAT(c.CabinNumber,' (',c.CabinType,')') " +
+                    "FROM Cabin c JOIN Voyage v ON c.ShipID = v.ShipID " +
+                    "WHERE v.VoyageID = ? ORDER BY c.CabinNumber")) {
+                ps.setInt(1, Integer.parseInt(voyageId));
+                ResultSet rs = ps.executeQuery();
+                while (rs.next()) cabinCombo.addItem(new String[]{rs.getString(1), rs.getString(2)});
+            } catch (SQLException ignored) {}
         }
 
         private void loadCombo(JComboBox<String[]> cb, String sql) {

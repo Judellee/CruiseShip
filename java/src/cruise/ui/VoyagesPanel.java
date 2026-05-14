@@ -495,6 +495,19 @@ public class VoyagesPanel extends JPanel {
         return cb;
     }
 
+    private static JComboBox<String[]> buildItinPortCombo() {
+        JComboBox<String[]> cb = new JComboBox<>();
+        cb.setRenderer((l, v, i, s, f) -> new JLabel(v != null ? v[1] : ""));
+        try (Statement st = DBConnection.get().createStatement();
+             ResultSet rs = st.executeQuery(
+                "SELECT DISTINCT p.PortID, CONCAT(p.PortName, ', ', p.Country) " +
+                "FROM Port p JOIN Stop s ON p.PortID = s.PortID " +
+                "ORDER BY p.PortName")) {
+            while (rs.next()) cb.addItem(new String[]{rs.getString(1), rs.getString(2)});
+        } catch (SQLException ignored) {}
+        return cb;
+    }
+
     private static void selectCombo(JComboBox<String[]> cb, int id) {
         for (int i = 0; i < cb.getItemCount(); i++)
             if (Integer.parseInt(cb.getItemAt(i)[0]) == id) { cb.setSelectedIndex(i); return; }
@@ -640,7 +653,7 @@ public class VoyagesPanel extends JPanel {
         private final int editId;
         private final JTextField nameField  = new JTextField(20);
         private final JTextField priceField = new JTextField(10);
-        private final JComboBox<String[]> portC    = buildPortCombo();
+        private final JComboBox<String[]> portC    = buildItinPortCombo();
         private final JComboBox<String[]> seasonC  = buildSeasonCombo();
 
         ExcursionDialog(Window owner, int editId, String name, String price, int portId, int seasonId) {

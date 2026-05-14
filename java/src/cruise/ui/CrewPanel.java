@@ -261,13 +261,17 @@ public class CrewPanel extends JPanel {
 
     class CrewCabinDialog extends JDialog {
         private final JComboBox<String[]> ec = empCombo();
-        private final JComboBox<String[]> cc = cabinCombo();
+        private final JComboBox<String[]> cc = new JComboBox<>();
         private final JTextField dateField = new JTextField(12);
         private final int crewCabinId;
 
         CrewCabinDialog(Window parent, int crewCabinId) {
             super(parent, crewCabinId < 0 ? "Add Crew Cabin" : "Edit Crew Cabin", ModalityType.APPLICATION_MODAL);
             this.crewCabinId = crewCabinId;
+            cc.setRenderer((l, v, i, s, f) -> new JLabel(v != null ? v[1] : ""));
+            ec.addActionListener(e -> reloadCabins());
+            reloadCabins();
+
             JPanel form = ShipsPanel.formPanel();
             ShipsPanel.addRow(form, 0, "Employee:",                 ec);
             ShipsPanel.addRow(form, 1, "Cabin:",                    cc);
@@ -279,7 +283,7 @@ public class CrewPanel extends JPanel {
                         "SELECT EmployeeID, CabinID, AssignedDate FROM CrewCabin WHERE CrewCabinID=?")) {
                     ps.setInt(1, crewCabinId); ResultSet rs = ps.executeQuery();
                     if (rs.next()) {
-                        selectCombo(ec, rs.getString(1));
+                        selectCombo(ec, rs.getString(1)); // triggers reloadCabins()
                         selectCombo(cc, rs.getString(2));
                         dateField.setText(rs.getString(3) != null ? rs.getString(3) : "");
                     }
@@ -288,6 +292,21 @@ public class CrewPanel extends JPanel {
             save.addActionListener(e -> save()); cancel.addActionListener(e -> dispose());
             getRootPane().setDefaultButton(save);
             add(form); pack(); setResizable(false); setLocationRelativeTo(parent);
+        }
+
+        private void reloadCabins() {
+            cc.removeAllItems();
+            if (ec.getSelectedItem() == null) return;
+            String empId = ((String[]) ec.getSelectedItem())[0];
+            try (PreparedStatement ps = DBConnection.get().prepareStatement(
+                    "SELECT c.CabinID, CONCAT(c.CabinNumber,' (',c.CabinType,')') " +
+                    "FROM Cabin c " +
+                    "WHERE c.ShipID = (SELECT ShipID FROM ShipCrew WHERE EmployeeID=? ORDER BY StartDate DESC LIMIT 1) " +
+                    "ORDER BY c.CabinNumber")) {
+                ps.setInt(1, Integer.parseInt(empId));
+                ResultSet rs = ps.executeQuery();
+                while (rs.next()) cc.addItem(new String[]{rs.getString(1), rs.getString(2)});
+            } catch (SQLException ignored) {}
         }
 
         private void save() {
